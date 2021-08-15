@@ -15,7 +15,7 @@ import urllib.request
 #Klub100 class 
 class Klub100(object):
     
-    def __init__(self,loc,normVol,length=100,seed=None):
+    def __init__(self,loc,normVol,length=100,seed=None,localBool=False):
         print("Initialising Klub100.\n")
         
         #Initialise parameters
@@ -37,7 +37,7 @@ class Klub100(object):
         self.songOverlayBooleans = {}
         
         #Read and download songs locally or from Sheets
-        url, startSec, songName = self.readSongs(loc)
+        url, startSec, songName = self.readSongs(loc, localBool)
         self.downloadSongs(loc,url,startSec,songName,normVol)
         
         self.url = url
@@ -67,15 +67,24 @@ class Klub100(object):
         
         
   # Functions to read songs from Sheets or a local Excel file   
-    def readSongs(self,loc):
-        if self.connect():
-            print("Gathering songs from Google Sheets.")
-            data = sheets.klubhest(loc)
+    def readSongs(self,loc,localBool):
+        
+        if localBool == False:
+            if self.connect():
+                print("Gathering songs from Google Sheets.")
+                data = sheets.klubhest(loc)
+            else: 
+                print("Attempted to gather songs from Google Sheets, but you are not connected to the internet. Gathering from local file instead.")
+                print(loc+ "k100.xlsx")
+                # Reads data in excel file 
+                data = pd.read_excel(loc + "k100.xlsx")
         else:
             print("Gathering songs from local Excel file.")
             print(loc+ "k100.xlsx")
             # Reads data in excel file 
             data = pd.read_excel(loc + "k100.xlsx")
+            
+
         
         url = data.loc[:,'Link']
         songName = data.loc[:,'Sang']
@@ -379,12 +388,7 @@ class Klub100(object):
     
     #hest
     def generateKlub100(self,url,songName,randomBool,seed):
-        if randomBool:
-            np.random.seed(seed)
-            songsList = np.random.choice(len(url),len(url),replace=False)
-        else:
-            songsList = np.arange(len(url))
-               
+        songsList = self.initSongs(randomBool,songName,seed,self.songs,self.positions)
         BumsernesKlub100 = AudioSegment.empty()
         BumsernesKlub100 += self.effects["intro"]
         
@@ -410,12 +414,13 @@ class Klub100(object):
             if customPause != False:
                 song = customPause
             elif i > 0:
-                song = self.randomQwabsPause(song,seed)                
+                    # def randomPause(self,song,effect,seed,slow=0.2,fast=2,meanMin=3,meanMax=11,timeMin=5,timeMax=8):
+                song,_,_ = self.randomPause(song,self.effects["kwabs"],seed)                
 
             i += 1
             songcounter += 1
             BumsernesKlub100 += song
-            print('Qwabs100 is at song',songcounter-1,'out of 100')
+            print('Qwabs100 is at song',songcounter-1,'out of '+str(self.length))
         #Loop end
         
         # Adds the outro file to the output file
@@ -427,23 +432,114 @@ class Klub100(object):
         print('Seed used was {}'.format(self.seed))
         print('bonsjuar madame')
         
+    #Help function to find the indices for a list of songs in a larger list of songs
+    def findIndices(self,songList,songs):
+        songIndices = []
+        for i in range(len(songs)):
+            try:
+                ind = songList.tolist().index(songs[i])
+                songIndices.append(ind)
+            except:
+                print("Song '" + songs[i] + "' does not exist. Ignoring.")
+        songIndices = np.array(songIndices)
+        return songIndices
+
+    
+    #Initialise the song list randomly or sequentially. If random, it is possible to force certain songs by names to appear in the list.
+    def initSongs(self,randomBoolean,songNames,seed,songs=[],positions=[]):
+        if not randomBoolean:
+            if len(songs) > 0:
+                print("Forced songs ignored.\n")
+                print("You attempted to force songs, but the songs are loaded sequentially and are not randomized. If you wish to include the songs, please put the songs in the respective order in the relevant spreadsheet.")
         
-        def forceSongs(self,songList,songs,positions,songsInKlub100):
-            songIndices = []
-            for i in range(len(songs)):
-                try:
-                    ind = songlist.index(songs[i])
-                    songIndices.append(ind)
-                except:
-                    print("Song '" + songs[i] + "' does not exist. Ignoring.")
+            songsInKlub100 = np.arange(len(self.url))
+        # If the songlist is random...
+        else:
+            positions = np.array(positions)
+            songsInKlub100 = np.random.choice(len(self.url),len(self.url),replace=False)
+
+            #If we are attempting to force songs...
+            if len(songs) > 0:
+                lengthDif = self.length-len(songs)
+
+                if len(songs) < len(positions):
+                    print("Error: length of array of positions is longer than the number of forced songs. The two arrays must be the same length.\nIgnoring forced songs.")
+                elif len(songs) > len(positions) and len(positions) != 0:
+                    print("Error: length of array of songnames is longer than the length of positions. If you wish to have only some of the forced songs be in a specific position, please denote the position of the randomly placed songs as 'None'. The two arrays must be the same length.\nIgnoring forced songs.")
+                elif lengthDif < 0:
+                    print("Error: you are trying to force a larger number of songs than the length of the Klub100. Ignoring forced songs.")
+                elif len(positions) != 0 and max(positions[positions!=None]) > self.length - 1:
+                    print("Error: you are attempting to position a forced song at an index larger than what is available given by the length-parameter. Ignoring forced songs.")
+                else:
+                    # If no errors. This code is rather confusing and I do not understand it anymore :)
+
+                    #Find the indices of the songs from the songNames array as read in the init
+                    songIndices = self.findIndices(songNames,songs)
                     
-            # if len(positions) == 0:
+                    #The relevant indices of the song indices in the random array generated by np.random.choice
+                    listIndices = np.nonzero(np.isin(songsInKlub100,songIndices))
+                    
+                    #The reduced output array 
+                    reducedSongsInKlub100 = np.delete(songsInKlub100,listIndices)
+   
+                    #Two subsets of the reduced output array. This is to stitch them later, taking into account e.g. mashups of songs
+                    reducedList1 = reducedSongsInKlub100[0:lengthDif].tolist()
+                    reducedList2 = reducedSongsInKlub100[lengthDif+1:-1].tolist()
+                    
+                    #List and dictionary for the random forced / positionally forced songs
+                    randomForcedSongsList = []
+                    positionedForcedSongsList = {}
+                    
+                    for j in range(len(songIndices)):
+                        #If there are positions...
+                        if len(positions) > 0:
+                            #If a "None" position, add the index to the list
+                            if positions[j] == None:
+                                randomForcedSongsList.append(songIndices[j])
+                            #Else add the song index as a value in a dictionary with keys the positions
+                            else:
+                                positionedForcedSongsList[positions[j]] = songIndices[j]                
                         
+                        #If no positions given, all songs are random
+                        else:
+                            randomForcedSongsList.append(songIndices[j])
+                            
+                    #Add the randomly forced songs back to the reduced random subset
+                    reducedList1.extend(randomForcedSongsList)
+                    
+                    #Scramble the combined list
+                    np.random.seed(seed)
+                    reducedList1 = np.random.choice(reducedList1,len(reducedList1),replace=False)
+                    
+                    #Ensuring that the positioned forced songs are added at the correct indices.
+                    songKeys = list(positionedForcedSongsList.keys())
+                    songKeysToAdd = songKeys - np.arange(len(songKeys))
+                    songValues = list(positionedForcedSongsList.values())
+                    
+                    #Add the positioned songs to the first subset
+                    if len(songKeysToAdd) > 0:
+                        reducedList1 = np.insert(reducedList1,songKeysToAdd,songValues)
+                    
+                    #Adding the two reduced lists back together to accommodate the cases where more than self.length songs have been used (i.e. with mashups)
+                    songsInKlub100 = np.concatenate((reducedList1,reducedList2))
+
+        return songsInKlub100
+    
+    def addForcedSongs(self,songs,positions=[]):
+        print("\nForcing songs \n" + str(songs))
+        if len(positions) == 0:
+            print("... at random positions.")
+        else:
+            print("... at the index locations: \n"+str(positions)+". \n'None' is random.")
+        self.songs = songs
+        self.positions = positions
+                      
             
 
 # der skal tilføjes funktionalitet til at:
     
 # man skal kunne tvinge givne sange til at være med hvis der trækkes tilfældige sange fra listen
+#TJEK
     
 # mappe med pauser i rækkefølge "1_hest.m4a" som indlæses på det respektive index
     # hvis overlap med pauses skal der ske noget (input prompt, pauses trumfer eller andet)
@@ -460,19 +556,42 @@ class Klub100(object):
 #chance for at en given sang ændres til dobbelt eller halv hastighed 
     
     
-   
-#%% Reading sound files
+   #%%
+# Reading sound files
 normVol = -5
-loc = "C:\\Users\\Marcus\\Desktop\\k100\\"
-length = 1
+loc = "C:\\Users\\Marcus\\Desktop\\k100\\Klub100\\"
+length = 4
 
 test = Klub100(loc,normVol,length)
 test.addSoundOverlay('helmig', test.effects["DIR-pat"], [30500,36500,42500,48000,53500])
+test.addForcedSongs(["fise323","wUUU"])
+test.generateKlub100(test.url, test.songName, True,test.seed)
+            #%%
+count1 = 0
+count2 = 0
+for k in range(100):
+    joke = test.initSongs(True,songName,["helmig","the sign","model"],[0,3,None])[0:length]
+    index = np.where(joke==132)[0][0]
+    if index == 1:
+        count1 += 1
+    elif index == 2:
+        count2 += 1
+    else:
+        print("fuck")
+        break
+print(count1)
+print(count2)    
+    
+# print(np.where(joke==107))
+
+# hest = np.where(joke[0:length]==107)[0]
+
+print(joke[0:length])
+            
+# print(test.initSongs(True,songName,["helmig"])[0:length])
 
 
-
-
-test.generateKlub100(test.url, test.songName, test.seed)
+# test.generateKlub100(test.url, test.songName, test.seed)
  
 
 #%% Alt under dette er gammel kode der skal skrives om
