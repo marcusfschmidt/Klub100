@@ -25,6 +25,9 @@ class Klub100(object):
         #Normalised volume in dBFS
         self.normVol = normVol
         
+        self.songs = []
+        self.positions = []
+        
         #Length of klub100 :)
         self.length = length
         self.seed = np.random.randint(0,100000) if seed is None else seed
@@ -47,6 +50,7 @@ class Klub100(object):
         eLoc = loc + "effects\\"
         print("\nReading sound effects from directory\n" + eLoc)
         self.effects = self.readSoundEffects(loc + "effects\\",normVol)
+        print("Finished reading sound effects.")
         
         
     def randomInt(self,seed,minimum=0,maximum=99999999,size=20000):
@@ -56,6 +60,17 @@ class Klub100(object):
     def randomFloat(self,seed,size=1):
         np.random.random(seed)
         return np.random.random(size)
+    
+    #Zero-truncated poisson distribution
+    def pois(self,mean,seed):
+        out = 0
+        while out < 1:
+            np.random.seed(seed)
+            out = np.random.poisson(mean)
+            
+            if type(seed) == np.int32 and out == 0:
+                seed += 1
+        return out
     
     #Boolean to check for internet connection
     def connect(self,host='http://google.com'):
@@ -95,6 +110,7 @@ class Klub100(object):
             
         return url, startSec, songName  
 
+
     #If there are more downloaded songs than read from self.readSoungs(), this function is run
     def compareFiles(self,songLoc,songsFromDataFrame):
         fileList = glob.glob(songLoc+'\*.*')
@@ -113,6 +129,7 @@ class Klub100(object):
                         print("'" +file+".mp4'" + " is available locally but not in the local .xlsx-file.")
 
        
+
     #Download songs using Google Sheets API (if internet) or using a local Excel
     def downloadSongs(self,loc,url,startSec,songName,normVol):
         #Define the song location
@@ -140,7 +157,7 @@ class Klub100(object):
                         startTime = startSec[i]*1000
                         endTime = startTime+60*1000
                         song = song[startTime:endTime]
-                        song.export(songLoc + songName[i] + '.mp4')
+                        song.export(songLoc + songName[i] + '.mp4',format="mp4")
                     except:
                         print("Error downloading '"+songName[i]+"', skipping.")
         else:
@@ -150,7 +167,25 @@ class Klub100(object):
             print("No missing songs found, continuing.")
         print("\næøæøæøæøæøæøøææøøæøæ bund")
                 
+        
+#######################################################################      
+        
     #Functions to read songs and sound effects
+    def readFolderPaths(self,loc,folderList):
+      for i in range(len(folderList)):
+          folder = folderList[i]
+          folderList[i] = folder[0:-1]
+      return folderList
+        
+    def readFileNames(self,loc,fileList):
+        nameList = np.empty_like(fileList)
+        for i in range(len(fileList)):
+            file = fileList[i]
+            file = os.path.basename(file)
+            file = os.path.splitext(file)[0]
+            nameList[i] = file
+        return nameList
+    
     def readEffectsInFolder(self,loc,normVol):
             fileList = glob.glob(loc+'\*.*')
             effectNames = self.readFileNames(loc,fileList)  
@@ -161,23 +196,7 @@ class Klub100(object):
                 soundClipArray[i] = soundClip
             
             return effectNames, soundClipArray
-       
-    def readFolderPaths(self,loc,folderList):
-        # folderList = glob.glob(loc+'\*\\'
-        for i in range(len(folderList)):
-            folder = folderList[i]
-            folderList[i] = folder[0:-1]
-        return folderList
-        
-    def readFileNames(self,loc,fileList):
-        nameList = np.empty_like(fileList)
-        for i in range(len(fileList)):
-            file = fileList[i]
-            file = os.path.basename(file)
-            file = os.path.splitext(file)[0]
-            nameList[i] = file
-        return nameList
-        
+              
     def readSoundEffects(self,loc,normVol):
         soundDict = {}
         
@@ -190,11 +209,17 @@ class Klub100(object):
             if len(readSounds) > 0:
                 folderName = "DIR-" + os.path.basename(i)
                 
-                #Handle the pauses dir separately
-                if folderName == "DIR-pauses":
+                #Handle the pauses directories separately
+                if folderName == "DIR-pauses-songnames":
                     songEffectsDict = {}
                     for k in range(len(names)):
                         songEffectsDict[names[k]] = readSounds[k]
+                    soundDict[folderName] = songEffectsDict
+                    
+                elif folderName == "DIR-pauses-index":
+                    songEffectsDict = {}
+                    for k in range(len(names)):
+                        songEffectsDict[names[k].split("_")[0]] = readSounds[k]
                     soundDict[folderName] = songEffectsDict
                     
                 else:
@@ -206,18 +231,9 @@ class Klub100(object):
             soundDict[names[j]] = readSounds[j]
             
         return soundDict
-    
-    #Zero-truncated poisson distribution
-    def pois(self,mean,seed):
-        out = 0
-        while out < 1:
-            np.random.seed(seed)
-            out = np.random.poisson(mean)
-            
-            if type(seed) == np.int32 and out == 0:
-                seed += 1
-        return out
-    
+
+#######################################################################
+        
      #Normalise sound volume
     def normaliseVolume(self,sound, target_dBFS):
         change_in_dBFS = target_dBFS - sound.dBFS
@@ -225,8 +241,8 @@ class Klub100(object):
     
     #Load soundclip and normalise
     def loadSoundClip(self,loc,normVol):
-        soundClip = AudioSegment.from_file(loc)
-        soundClip = self.normaliseVolume(soundClip, normVol)
+        soundClip = AudioSegment.from_file(loc).normalize()
+        # soundClip = self.normaliseVolume(soundClip, normVol)
         return soundClip
 
     #Change speed of sound clips
@@ -273,11 +289,15 @@ class Klub100(object):
         clipOut = clipOut[0:maxtime*1000]
         return clipOut,speeds,loopnumber
     
+    
+    
     #skal nok væk
     def randomBundClip(self,bundarray,seed=None):
         np.random.seed(seed)
         randomNumber = np.random.randint(0,len(bundarray))
         return bundarray[randomNumber]
+    
+    
     
     #Lower volume of a given AudioSegment in an interval
     def lowerVolumeInterval(self,clip,start,end,db):
@@ -295,12 +315,38 @@ class Klub100(object):
         song1 += song3
         return song1
     
+    def addPauseBeforeSong(self,song,pause):
+        songOut = AudioSegment.empty()
+        songOut += pause
+        songOut += song
+        return songOut
+    
     #Function to make a custom pause between songs using the songname.
-    def customPause(self,pauseDict,songName,song):
-        if songName in pauseDict:
-            songOut = AudioSegment.empty()
-            songOut += pauseDict[songName]
-            songOut += song
+    def customPause(self,index,songName,song):
+        try:
+            indexPauses = self.effects["DIR-pauses-index"]
+        except:
+            indexPauses = []
+        try:
+            customPauses = self.effects["DIR-pauses-songnames"]
+        except:
+            customPauses = []
+        index = str(index)
+        
+        if index in indexPauses and songName in customPauses:
+            out = self.fixPauseConflict(songName, index)
+            if out == "II":
+                songOut = self.addPauseBeforeSong(song,customPauses[songName])
+                return songOut
+            elif out == "IC":
+                songOut = self.addPauseBeforeSong(song,indexPauses[index])
+                return songOut
+            
+        elif index in indexPauses:
+            songOut = self.addPauseBeforeSong(song,indexPauses[index])
+            return songOut
+        elif songName in customPauses:
+            songOut = self.addPauseBeforeSong(song,customPauses[songName])
             return songOut
         else:
             return False
@@ -386,9 +432,69 @@ class Klub100(object):
         songOut += songChange
         return songOut
     
+    def fixPauseConflict(self,songName,index):
+        indexList = list(self.effects["DIR-pauses-index"].keys())
+        indexList = list(map(int,indexList))
+        lenCustoms = len(self.effects["DIR-pauses-songnames"])
+        print("\nPause conflict:\nThere is a custom pause for the song '" + songName + "', but the current iteration also has an indexed pause.")
+        remainingIndices = np.arange(int(index)+1,self.length)
+        removeIndices = np.nonzero(np.isin(indexList,remainingIndices))
+        randoms = np.delete(remainingIndices, removeIndices)
+        
+        print("\nYou can either ignore the custom pause ('IC'), ignore the indexed pause ('II'), move to a random new index ('RNI') or set a manual index ('SMI').")
+        validCommands = ["IC","II","RNI","SMI"]
+        
+        while True:
+            inString = input("Please enter a command:\n")
+            if inString not in validCommands:
+                print("\nInvalid command.\nPlease input either 'IC' to ignore the custom pause, 'II' to ignore the indexed pause, 'RNI' to move to a random new index or 'SMI' to set a manual index.")
+            elif inString == "IC":
+                print("Ignoring the custom pause for '"+ songName +"'.\n")
+                return 'IC'
+            elif inString == "II":
+                print("Ignoring the indexed pause for index "+ index +".\n")
+                return 'II'
+            elif inString == "RNI":
+                print("Assigning the indexed pause with a random new index.\n")
+                if len(randoms) > 0:
+                    newIndex = np.random.choice(randoms,replace=False)
+                    print(newIndex)
+                    self.effects["DIR-pauses-index"][str(newIndex)] = self.effects["DIR-pauses-index"][str(index)]
+                    del self.effects["DIR-pauses-index"][str(index)]
+                    return 'II'
+                else:
+                    print("No more locations available. Please ignore either the custom or the indexed pause.")
+            elif inString == "SMI":
+                print("Manually setting a new index.\n")
+                
+                if len(randoms) == 0:
+                    print("No more locations available. Please ignore either the custom or the indexed pause.")
+                else:
+                    print("Please enter a new index from the below list. If you wish to use another command, type 'UP'.\n")
+                    print(np.sort(randoms))
+                    while True:
+                        newIndex = input()
+                        if newIndex == "UP":
+                            break
+                        else:
+                            try:
+                                newIndex = int(newIndex)
+                                if newIndex not in randoms:
+                                    print("Please pick an index from the list given above.")
+                                    continue
+                                else:
+                                    self.effects["DIR-pauses-index"][str(newIndex)] = self.effects["DIR-pauses-index"][str(index)]
+                                    del self.effects["DIR-pauses-index"][str(index)]
+                                    return 'II'
+                            except:
+                                print("Error - please enter an integer.")
+                                continue
+            
+    
     #hest
     def generateKlub100(self,url,songName,randomBool,seed):
         songsList = self.initSongs(randomBool,songName,seed,self.songs,self.positions)
+        
         BumsernesKlub100 = AudioSegment.empty()
         BumsernesKlub100 += self.effects["intro"]
         
@@ -398,6 +504,7 @@ class Klub100(object):
         i = 0
         songcounter = 1
         while songcounter <= self.length:
+            print('Qwabs100 is at song',songcounter,'out of '+str(self.length))
             name = songName[songsList[i]]
             song = self.loadSoundClip(self.loc + "songs\\" + name + ".mp4", self.normVol)
             # Adds fade in and fade out to the song
@@ -409,18 +516,16 @@ class Klub100(object):
                 if overlayedSong != False:
                     song = overlayedSong
 
-            #Add either a custom pause or Qwabs 
-            customPause = self.customPause(self.effects["DIR-pauses"],name,song)
+            #Add either a custom pause or Qwabs
+            customPause = self.customPause(i,name,song)
             if customPause != False:
                 song = customPause
             elif i > 0:
-                    # def randomPause(self,song,effect,seed,slow=0.2,fast=2,meanMin=3,meanMax=11,timeMin=5,timeMax=8):
                 song,_,_ = self.randomPause(song,self.effects["kwabs"],seed)                
 
             i += 1
             songcounter += 1
             BumsernesKlub100 += song
-            print('Qwabs100 is at song',songcounter-1,'out of '+str(self.length))
         #Loop end
         
         # Adds the outro file to the output file
@@ -428,7 +533,7 @@ class Klub100(object):
         print("\nDone sticthing. Now exporting the file - this might take some time.\n")
 
         # Exports the output file
-        BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.wav')
+        BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
         print('Seed used was {}'.format(self.seed))
         print('bonsjuar madame')
         
@@ -543,9 +648,13 @@ class Klub100(object):
     
 # mappe med pauser i rækkefølge "1_hest.m4a" som indlæses på det respektive index
     # hvis overlap med pauses skal der ske noget (input prompt, pauses trumfer eller andet)
+#TJEK
+    #man skal måske kunne vælge en standardindstilling?
+
 
 #funktionalitet til at tilføje tilfældige pauser fra en eller flere mapper
     # hvordan skal det fungere hvis der tilføjes tilfældige pauser
+    #
 
 #seeds skal virke igen
 
@@ -556,17 +665,20 @@ class Klub100(object):
 #chance for at en given sang ændres til dobbelt eller halv hastighed 
     
     
-   #%%
 # Reading sound files
-normVol = -5
+normVol = -20
 loc = "C:\\Users\\Marcus\\Desktop\\k100\\Klub100\\"
-length = 4
-
-test = Klub100(loc,normVol,length)
-test.addSoundOverlay('helmig', test.effects["DIR-pat"], [30500,36500,42500,48000,53500])
-test.addForcedSongs(["fise323","wUUU"])
+length = 5
+test = Klub100(loc,normVol,length,localBool=True)
+# test.addSoundOverlay('helmig', test.effects["DIR-pat"], [30500,36500,42500,48000,53500])
+test.addForcedSongs(["helmig"],[4])
 test.generateKlub100(test.url, test.songName, True,test.seed)
-            #%%
+       
+
+        
+
+
+#%%
 count1 = 0
 count2 = 0
 for k in range(100):
