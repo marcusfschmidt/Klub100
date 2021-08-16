@@ -39,6 +39,11 @@ class Klub100(object):
         self.songOverlaySettings = []
         self.songOverlayBooleans = {}
         
+        #Settings for random pauses
+        self.totalWeights = 0
+        self.randomMashedPauses = []
+        self.randomPauses = []
+    
         #Read and download songs locally or from Sheets
         url, startSec, songName = self.readSongs(loc, localBool)
         self.downloadSongs(loc,url,startSec,songName,normVol)
@@ -60,6 +65,12 @@ class Klub100(object):
     def randomFloat(self,seed,size=1):
         np.random.random(seed)
         return np.random.random(size)
+    
+    def findNearestGreaterThan(self,searchVal, inputData):
+        diff = inputData - searchVal
+        diff[diff<0] = np.inf
+        idx = diff.argmin()
+        return idx
     
     #Zero-truncated poisson distribution
     def pois(self,mean,seed):
@@ -359,14 +370,10 @@ class Klub100(object):
         return mean, time
         
     #Help function to make a random sound sequence (qwabs)
-    def randomPause(self,song,effect,seed,slow=0.2,fast=2,meanMin=3,meanMax=11,timeMin=5,timeMax=8):
+    def randomPause(self,song,seed,effect,slow=0.2,fast=2,meanMin=3,meanMax=11,timeMin=5,timeMax=8):
         mean, time = self.randomSoundMashupRandomVariables(seed,meanMin,meanMax,timeMin,timeMax)
         qwabs, speeds,loopnumber = self.randomSoundMashup(effect,mean,slow,fast,time,seed)
-        
-        songOut = AudioSegment.empty()
-        songOut += qwabs
-        songOut += song
-        
+        songOut = self.addPauseBeforeSong(song,qwabs)        
         return songOut,speeds,loopnumber
 
     #Function to count random events in order to seed properly
@@ -408,12 +415,6 @@ class Klub100(object):
             self.songOverlayBooleans[overlaySongName] = True
             return self.overlaySound(song,clips,positions,db)
             # return True
-            
-            
-    # Function to add settings from a sound overlay    
-    def addSoundOverlay(self,overlaySongName,clips,positions,db=10):
-        settingsList = [overlaySongName,clips,positions,db]
-        self.songOverlaySettings.append(settingsList)
         
     #Function to overlay a song with a mashed random soundclip at a random position
     def randomOverlaySound(self,song,clip,seed,slow=None,fast=2,pos=None,meanMin=3,meanMax=3,timeMin=1,timeMax=8):
@@ -490,54 +491,7 @@ class Klub100(object):
                                 print("Error - please enter an integer.")
                                 continue
             
-    
-    #hest
-    def generateKlub100(self,url,songName,randomBool,seed):
-        songsList = self.initSongs(randomBool,songName,seed,self.songs,self.positions)
-        
-        BumsernesKlub100 = AudioSegment.empty()
-        BumsernesKlub100 += self.effects["intro"]
-        
-        print("\nNow stitching the songs...")
-        
-        #Loop begin
-        i = 0
-        songcounter = 1
-        while songcounter <= self.length:
-            print('Qwabs100 is at song',songcounter,'out of '+str(self.length))
-            name = songName[songsList[i]]
-            song = self.loadSoundClip(self.loc + "songs\\" + name + ".mp4", self.normVol)
-            # Adds fade in and fade out to the song
-            song = song.fade_in(2000).fade_out(2000)
-            
-            #Add any potential song overlays
-            for k in self.songOverlaySettings:
-                overlayedSong = self.overlaySoundSongname(name,song,*k)
-                if overlayedSong != False:
-                    song = overlayedSong
-
-            #Add either a custom pause or Qwabs
-            customPause = self.customPause(i,name,song)
-            if customPause != False:
-                song = customPause
-            elif i > 0:
-                song,_,_ = self.randomPause(song,self.effects["kwabs"],seed)                
-
-            i += 1
-            songcounter += 1
-            BumsernesKlub100 += song
-        #Loop end
-        
-        # Adds the outro file to the output file
-        BumsernesKlub100 += self.effects["outro"]
-        print("\nDone sticthing. Now exporting the file - this might take some time.\n")
-
-        # Exports the output file
-        BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
-        print('Seed used was {}'.format(self.seed))
-        print('bonsjuar madame')
-        
-    #Help function to find the indices for a list of songs in a larger list of songs
+     #Help function to find the indices for a list of songs in a larger list of songs
     def findIndices(self,songList,songs):
         songIndices = []
         for i in range(len(songs)):
@@ -576,7 +530,7 @@ class Klub100(object):
                 elif len(positions) != 0 and max(positions[positions!=None]) > self.length - 1:
                     print("Error: you are attempting to position a forced song at an index larger than what is available given by the length-parameter. Ignoring forced songs.")
                 else:
-                    # If no errors. This code is rather confusing and I do not understand it anymore :)
+                    # If no errors. This code is a bit confusing and I do not really understand it anymore :)
 
                     #Find the indices of the songs from the songNames array as read in the init
                     songIndices = self.findIndices(songNames,songs)
@@ -639,6 +593,105 @@ class Klub100(object):
         self.songs = songs
         self.positions = positions
                       
+    
+    
+    #hest
+    def generateKlub100(self,url,songName,randomBool,seed):
+        songsList = self.initSongs(randomBool,songName,seed,self.songs,self.positions)
+        
+        BumsernesKlub100 = AudioSegment.empty()
+        BumsernesKlub100 += self.effects["intro"]
+        
+        print("\nNow stitching the songs...")
+        
+        #Loop begin
+        i = 0
+        songcounter = 1
+        while songcounter <= self.length:
+            print('Qwabs100 is at song',songcounter,'out of '+str(self.length))
+            name = songName[songsList[i]]
+            song = self.loadSoundClip(self.loc + "songs\\" + name + ".mp4", self.normVol)
+            # Adds fade in and fade out to the song
+            song = song.fade_in(2000).fade_out(2000)
+            
+            #Add any potential song overlays
+            for k in self.songOverlaySettings:
+                overlayedSong = self.overlaySoundSongname(name,song,*k)
+                if overlayedSong != False:
+                    song = overlayedSong
+
+
+            #Add either a custom pause or random pause 
+            customPause = self.customPause(i,name,song)
+            if customPause != False:
+                song = customPause
+            elif i > 0:
+                song,speed,loopnumbers = self.insertRandomPause(song,seed)              
+
+            i += 1
+            songcounter += 1
+            BumsernesKlub100 += song
+        #Loop end
+        
+        # Adds the outro file to the output file
+        BumsernesKlub100 += self.effects["outro"]
+        print("Done sticthing. Now exporting the file - this might take some time.\n")
+
+        # Exports the output file
+        BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
+        print('Seed used was {}'.format(self.seed))
+        print('bonsjuar madame')
+        
+    # Function to add settings from a sound overlay    
+    def addSoundOverlay(self,overlaySongName,clips,positions,db=10):
+        settingsList = [overlaySongName,clips,positions,db]
+        self.songOverlaySettings.append(settingsList)
+               
+    def addRandomMashedPause(self,weight,effect,slow=0.2,fast=2,meanMin=3,meanMax=11,timeMin=5,timeMax=8):
+        mashBool = True
+        self.totalWeights += weight
+        settingsList = [mashBool,weight,effect,slow,fast,meanMin,meanMax,timeMin,timeMax]
+        self.randomPauses.append(settingsList)
+        
+    def addRandomPause(self,weight,effects):
+        mashBool = False
+        self.totalWeights += weight
+        settingsList = [mashBool,weight,effects]
+        self.randomPauses.append(settingsList)
+        
+    def chooseRandomPause(self,seed):
+        np.random.seed(seed)
+        randomNumber = np.random.random()
+        probsPauses = []
+        for i in self.randomPauses:
+            probsPauses.append(i[1]/self.totalWeights)
+        propsPauses = np.cumsum(probsPauses)
+        
+        idx = self.findNearestGreaterThan(randomNumber,propsPauses)
+        return self.randomPauses[idx][0],self.randomPauses[idx]
+    
+    
+    def insertRandomPause(self,song,seed):
+        if len(self.randomPauses) == 0:
+            return song,1,1
+        
+        nSeed = self.randomInt(seed,size=3)
+        mashBool,settings = self.chooseRandomPause(nSeed[0])
+        if mashBool:
+            return self.randomPause(song,nSeed[1],*settings[2:-1])
+        else:
+            eLen = len(settings[2])
+            print(settings[2])
+             
+            if eLen > 0:
+                effectIdx = self.randomInt(nSeed[2],0,eLen,None)
+                effect = settings[2][effectIdx]
+            else:
+                effect = settings[2]
+                
+            return self.addPauseBeforeSong(song,effect),1,1
+                
+     
             
 
 # der skal tilføjes funktionalitet til at:
@@ -653,8 +706,7 @@ class Klub100(object):
 
 
 #funktionalitet til at tilføje tilfældige pauser fra en eller flere mapper
-    # hvordan skal det fungere hvis der tilføjes tilfældige pauser
-    #
+    # TJEK
 
 #seeds skal virke igen
 
@@ -672,11 +724,30 @@ length = 5
 test = Klub100(loc,normVol,length,localBool=True)
 # test.addSoundOverlay('helmig', test.effects["DIR-pat"], [30500,36500,42500,48000,53500])
 test.addForcedSongs(["helmig"],[4])
-test.generateKlub100(test.url, test.songName, True,test.seed)
+
+test.addRandomPause(1000,test.effects["DIR-pat"])
+test.addRandomPause(500,test.effects["DIR-bund"])
+test.addRandomMashedPause(1,test.effects["kwabs"])
+
+test.generateKlub100(test.url, test.songName, True,seed=None)
        
 
-        
+#%%
+randomPauses = [3,3,10]
+totalWeights = sum(randomPauses)
 
+randomNumber = np.random.random()
+
+numberOfPauses = len(randomPauses)
+probsPauses = []
+
+for i in randomPauses:
+    probsPauses.append(i/totalWeights)
+propsPauses = np.cumsum(probsPauses)
+p = propsPauses
+
+
+        
 
 #%%
 count1 = 0
