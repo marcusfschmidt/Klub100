@@ -3,6 +3,7 @@ import sys
 
 file_dir = os.path.dirname(__file__)
 sys.path.append(file_dir)
+os.chdir(file_dir)
 
 import pytube
 import pandas as pd
@@ -11,16 +12,22 @@ import numpy as np
 import glob
 import sheets
 import urllib.request
+import shutil
+from gtts import gTTS as gt
+
 
 #Klub100 class 
 class Klub100(object):
     
-    def __init__(self,loc,normVol,length=100,seed=None,localBool=False):
+    def __init__(self,loc,normVol,length=100,seed=None,localBool=False,indexedShoutoutBool=False,prefix='',lan='da'):
         print("Initialising Klub100.\n")
         
         #Initialise parameters
         #Root folder location
         self.loc = loc
+        
+        #Should we use the shoutouts as indexed pauses?
+        self.indexedShoutoutBool = indexedShoutoutBool
         
         #Normalised volume in dBFS
         self.normVol = normVol
@@ -41,12 +48,12 @@ class Klub100(object):
         
         #Settings for random pauses
         self.totalWeights = 0
-        self.randomMashedPauses = []
         self.randomPauses = []
     
         #Read and download songs locally or from Sheets
-        url, startSec, songName = self.readSongs(loc, localBool)
+        url, startSec, songName, shoutouts = self.readSongsAndShoutouts(loc, localBool)
         self.downloadSongs(loc,url,startSec,songName,normVol)
+        self.downloadShoutouts(shoutouts,prefix,lan)
         
         self.url = url
         self.startSec = startSec
@@ -93,11 +100,11 @@ class Klub100(object):
         
         
   # Functions to read songs from Sheets or a local Excel file   
-    def readSongs(self,loc,localBool):
+    def readSongsAndShoutouts(self,loc,localBool):
         
         if localBool == False:
             if self.connect():
-                print("Gathering songs from Google Sheets.")
+                print("Gathering songs (and potential shoutouts) from Google Sheets.")
                 data = sheets.klubhest(loc)
             else: 
                 print("Attempted to gather songs from Google Sheets, but you are not connected to the internet. Gathering from local file instead.")
@@ -105,7 +112,7 @@ class Klub100(object):
                 # Reads data in excel file 
                 data = pd.read_excel(loc + "k100.xlsx")
         else:
-            print("Gathering songs from local Excel file.")
+            print("Gathering songs (and potential shoutouts) from local Excel file.")
             print(loc+ "k100.xlsx")
             # Reads data in excel file 
             data = pd.read_excel(loc + "k100.xlsx")
@@ -118,8 +125,9 @@ class Klub100(object):
         if len(nullIndex) > 0:
             data.loc[:,'Starttid i sang [s]'][nullIndex] = 0
         startSec = data.loc[:,'Starttid i sang [s]'].astype('int')
+        shoutouts = data.loc[:,'Shoutouts'].dropna()
             
-        return url, startSec, songName  
+        return url, startSec, songName, shoutouts
 
 
     #If there are more downloaded songs than read from self.readSoungs(), this function is run
@@ -177,6 +185,11 @@ class Klub100(object):
            else:
             print("No missing songs found, continuing.")
         print("\næøæøæøæøæøæøøææøøæøæ bund")
+        
+
+    # def downloadShoutouts(self,shoutouts):
+    #     for k in shoutouts
+        
                 
         
 #######################################################################      
@@ -335,7 +348,10 @@ class Klub100(object):
     #Function to make a custom pause between songs using the songname.
     def customPause(self,index,songName,song):
         try:
-            indexPauses = self.effects["DIR-pauses-index"]
+            if self.indexedShoutoutBool:
+                indexPauses = self.effects["DIR-shoutout"]
+            else:
+                indexPauses = self.effects["DIR-pauses-index"]
         except:
             indexPauses = []
         try:
@@ -436,7 +452,6 @@ class Klub100(object):
     def fixPauseConflict(self,songName,index):
         indexList = list(self.effects["DIR-pauses-index"].keys())
         indexList = list(map(int,indexList))
-        lenCustoms = len(self.effects["DIR-pauses-songnames"])
         print("\nPause conflict:\nThere is a custom pause for the song '" + songName + "', but the current iteration also has an indexed pause.")
         remainingIndices = np.arange(int(index)+1,self.length)
         removeIndices = np.nonzero(np.isin(indexList,remainingIndices))
@@ -644,7 +659,8 @@ class Klub100(object):
         
     # Function to add settings from a sound overlay    
     def addSoundOverlay(self,overlaySongName,clips,positions,db=10):
-        settingsList = [overlaySongName,clips,positions,db]
+        pos = [i*1000 for i in positions]
+        settingsList = [overlaySongName,clips,pos,db]
         self.songOverlaySettings.append(settingsList)
                
     def addRandomMashedPause(self,weight,effect,slow=0.2,fast=2,meanMin=3,meanMax=11,timeMin=5,timeMax=8):
@@ -690,9 +706,62 @@ class Klub100(object):
                 effect = settings[2]
                 
             return self.addPauseBeforeSong(song,effect),1,1
-                
-     
+        
+        
+    def helpShoutoutDownloads(self,shoutoutLoc,shoutout,index,prefix,lan,shoutoutLength):
+        if os.path.isfile(shoutoutLoc + str(index) + "_" +prefix + shoutout + "_" + lan +".mp3") == False:
+            print("Downloading shoutout '" + shoutout + "', {}".format(index+1)+" out of "+str(shoutoutLength))
+            # try:
+            sound = gt(prefix + " " + shoutout,lang=lan)
+            sound.save("effects\\shoutout\\" + str(index) +"_"+ prefix + shoutout + "_" + lan +".mp3") 
+        else:
+            print("No missing shoutouts. Continuing.")
+
+    def downloadShoutouts(self,shoutouts,prefix,lan):
+        shoutoutLoc = self.loc + "effects\\shoutout\\"
+        print("\nDownloading missing shoutouts from Google Translate.")
+        
+        if type(prefix) is not str:
+            if len(prefix) == 1:
+                prefix = prefix[0]
+            else:
+                try: 
+                    if len(prefix) != len(shoutouts):
+                        print("Error: the length of the prefix-list is not the same as the length of the shoutouts. Using the first entry in the list.")
+                        prefix = prefix[0]
+                except:
+                    print("Error: if you wish to use multiple prefixes, please ensure that the input is given in a list-type.")
+        
+        
+        if type(lan) is not str:
+            if len(lan) == 1:
+                lan = lan[0]
+            else:
+                try: 
+                    if len(prefix) != len(shoutouts):
+                        print("The length of the language-list is not the same as the length of the shoutouts. Using the first entry in the list.")
+                        lan = lan[0]
+                except:
+                    print("If you wish to use multiple prefixes, please ensure that the input is given in a list-type.")
+        
+        
+        if type(prefix) == str:
+            prefix = np.repeat(prefix,len(shoutouts))
             
+        if type(lan) == str:
+            lan = np.repeat(lan,len(shoutouts))
+            
+        shoutoutLength = len(shoutouts)
+        for k in range(shoutoutLength):
+            self.helpShoutoutDownloads(shoutoutLoc,shoutouts[k],k,prefix[k],lan[k],shoutoutLength)
+       
+        if self.indexedShoutoutBool:
+            string = "The shoutouts are used as indexed pauses. This means that any indexed pauses in the directory 'pauses-index' will not be used. If you wish to use a combination of the two, please disable the 'indexedShoutoutBool'-boolean and move the respective files between the relevant folders."
+        else:
+            string = "The shoutouts are not used as indexed pauses and will only be enabled if you enable randomshoutoutsif you add the folder as a random pause. If you wish to use the shoutouts as indexed pauses, please enable the 'indexedShoutoutBool'-boolean."
+        print("Finished!\n\n" + string)
+                    
+
 
 # der skal tilføjes funktionalitet til at:
     
@@ -720,32 +789,46 @@ class Klub100(object):
 # Reading sound files
 normVol = -20
 loc = "C:\\Users\\Marcus\\Desktop\\k100\\Klub100\\"
-length = 5
-test = Klub100(loc,normVol,length,localBool=True)
-# test.addSoundOverlay('helmig', test.effects["DIR-pat"], [30500,36500,42500,48000,53500])
-test.addForcedSongs(["helmig"],[4])
+length = 10
+test = Klub100(loc,normVol,length,localBool=False,)
 
-test.addRandomPause(1000,test.effects["DIR-pat"])
-test.addRandomPause(500,test.effects["DIR-bund"])
-test.addRandomMashedPause(1,test.effects["kwabs"])
+# test.addSoundOverlay('helmig', test.effects["DIR-pat"], [30.5,36.5,42.5,48,53.5])
+# test.addForcedSongs(["helmig"],[4])
 
-test.generateKlub100(test.url, test.songName, True,seed=None)
-       
+# test.addRandomPause(0.3,test.effects["DIR-bund"])
+# test.addRandomMashedPause(0.7,test.effects["kwabs"]) 
+
+# test.generateKlub100(test.url, test.songName,randomBool=True,seed=None)
 
 #%%
-randomPauses = [3,3,10]
-totalWeights = sum(randomPauses)
+#Define the song location
+shoutoutLoc = loc + "shoutout\\"
+prefix = ["hest"]
+lan = "da"
+shoutouts = ["hest","hello"]
 
-randomNumber = np.random.random()
+    
 
-numberOfPauses = len(randomPauses)
-probsPauses = []
 
-for i in randomPauses:
-    probsPauses.append(i/totalWeights)
-propsPauses = np.cumsum(probsPauses)
-p = propsPauses
+# #dict.fromkeys to remove duplicate values
+# numberOfShoutouts = len(shoutouts)
+# numberOfMissingShoutouts = numberOfSongs-len(glob.glob(songLoc+'*.*'))
 
+# if numberOfShoutouts == 0:
+#     print("No shoutouts given. To add a shoutout, write a sentence or word in the fourth column of the data sheet.")
+# elif numberOfMissingShoutouts > 0:
+
+#     print("Downloading {} missing shoutout(s) out of {}".format(numberOfMissingShoutouts,numberOfShoutouts) + " in total.")
+#     for i in range(shoutouts):
+       
+    
+
+# else:
+#    if numberOfMissingSongs < 0:
+#        self.compareFiles(songLoc,songName)               
+#    else:
+#     print("No missing songs found, continuing.")
+# print("\næøæøæøæøæøæøøææøøæøæ bund")
 
         
 
