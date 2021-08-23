@@ -12,15 +12,15 @@ import numpy as np
 import glob
 import sheets
 import urllib.request
-import shutil
 from gtts import gTTS as gt
+import uuid
 
 
 #Klub100 class 
 class Klub100(object):
     
-    def __init__(self,loc,normVol,length=100,seed=None,localBool=False,indexedShoutoutBool=False,prefix='',lan='da'):
-        print("Initialising Klub100.\n")
+    def __init__(self,loc,normVol,standardPauseConflictSetting=None,length=100,seed=None,localBool=False,indexedShoutoutBool=False,prefix='',lan='da'):
+        print("Initialising Klub100 of length " + str(length) + ".\n")
         
         #Initialise parameters
         #Root folder location
@@ -29,9 +29,21 @@ class Klub100(object):
         #Should we use the shoutouts as indexed pauses?
         self.indexedShoutoutBool = indexedShoutoutBool
         
+        if self.indexedShoutoutBool:
+            self.indexedPauseDir = "DIR-shoutout"
+        else:
+            self.indexedPauseDir = "DIR-pauses-index"
+            
+        #Standard setting in case of pause conflicts
+        self.standardPauseConflictSetting = standardPauseConflictSetting
+        
+        #Random mash songs settings
+        self.randomMashAddedBoolean = False
+        
         #Normalised volume in dBFS
         self.normVol = normVol
         
+        #Forced song arrays
         self.songs = []
         self.positions = []
         
@@ -44,7 +56,15 @@ class Klub100(object):
         
         #Arrays to hold settings for custom effects
         self.songOverlaySettings = []
+        
+        #bruges ikke??
         self.songOverlayBooleans = {}
+        
+        self.conditionsDict = {}
+        self.statusDict = {}
+        
+        #bruges ikke
+        self.speedChangeSettings = []
         
         #Settings for random pauses
         self.totalWeights = 0
@@ -64,6 +84,7 @@ class Klub100(object):
         self.effects = self.readSoundEffects(loc + "effects\\",normVol)
         print("Finished reading sound effects.")
         
+         
         
     def randomInt(self,seed,minimum=0,maximum=99999999,size=20000):
         np.random.seed(seed)
@@ -240,7 +261,7 @@ class Klub100(object):
                         songEffectsDict[names[k]] = readSounds[k]
                     soundDict[folderName] = songEffectsDict
                     
-                elif folderName == "DIR-pauses-index":
+                elif folderName == self.indexedPauseDir:
                     songEffectsDict = {}
                     for k in range(len(names)):
                         songEffectsDict[names[k].split("_")[0]] = readSounds[k]
@@ -313,16 +334,12 @@ class Klub100(object):
         clipOut = clipOut[0:maxtime*1000]
         return clipOut,speeds,loopnumber
     
-    
-    
-    #skal nok væk
-    def randomBundClip(self,bundarray,seed=None):
+    def randomSoundEffect(self,effectDir,seed=None):
         np.random.seed(seed)
-        randomNumber = np.random.randint(0,len(bundarray))
-        return bundarray[randomNumber]
+        randomNumber = np.random.randint(0,len(effectDir))
+        return effectDir[randomNumber]
     
-    
-    
+
     #Lower volume of a given AudioSegment in an interval
     def lowerVolumeInterval(self,clip,start,end,db):
         
@@ -354,6 +371,7 @@ class Klub100(object):
                 indexPauses = self.effects["DIR-pauses-index"]
         except:
             indexPauses = []
+            
         try:
             customPauses = self.effects["DIR-pauses-songnames"]
         except:
@@ -450,61 +468,71 @@ class Klub100(object):
         return songOut
     
     def fixPauseConflict(self,songName,index):
+        
+        validCommands = ["IC","II","RNI","SMI"]
         indexList = list(self.effects["DIR-pauses-index"].keys())
         indexList = list(map(int,indexList))
         print("\nPause conflict:\nThere is a custom pause for the song '" + songName + "', but the current iteration also has an indexed pause.")
-        remainingIndices = np.arange(int(index)+1,self.length)
-        removeIndices = np.nonzero(np.isin(indexList,remainingIndices))
-        randoms = np.delete(remainingIndices, removeIndices)
         
-        print("\nYou can either ignore the custom pause ('IC'), ignore the indexed pause ('II'), move to a random new index ('RNI') or set a manual index ('SMI').")
-        validCommands = ["IC","II","RNI","SMI"]
-        
-        while True:
-            inString = input("Please enter a command:\n")
-            if inString not in validCommands:
-                print("\nInvalid command.\nPlease input either 'IC' to ignore the custom pause, 'II' to ignore the indexed pause, 'RNI' to move to a random new index or 'SMI' to set a manual index.")
-            elif inString == "IC":
-                print("Ignoring the custom pause for '"+ songName +"'.\n")
-                return 'IC'
-            elif inString == "II":
-                print("Ignoring the indexed pause for index "+ index +".\n")
-                return 'II'
-            elif inString == "RNI":
-                print("Assigning the indexed pause with a random new index.\n")
-                if len(randoms) > 0:
-                    newIndex = np.random.choice(randoms,replace=False)
-                    print(newIndex)
-                    self.effects["DIR-pauses-index"][str(newIndex)] = self.effects["DIR-pauses-index"][str(index)]
-                    del self.effects["DIR-pauses-index"][str(index)]
+        if self.standardPauseConflictSetting is not None:
+            if self.standardPauseConflictSetting not in ["IC","II"]:
+                print("\nError: the standard setting for the pause conflict can only be to either ignore the indexed pause ('II') or to ignore the custom pause. Defaulting to ignore the indexed pause.\n")
+                return "II"
+            else:
+                print("Using the standard setting of '"+ self.standardPauseConflictSetting+"'.\n")
+                return self.standardPauseConflictSetting
+        else:
+    
+            remainingIndices = np.arange(int(index)+1,self.length)
+            removeIndices = np.nonzero(np.isin(indexList,remainingIndices))
+            randoms = np.delete(remainingIndices, removeIndices)
+            print("\nYou can either ignore the custom pause ('IC'), ignore the indexed pause ('II'), move to a random new index ('RNI') or set a manual index ('SMI').")
+            
+            
+            while True:
+                inString = input("Please enter a command:\n")
+                if inString not in validCommands:
+                    print("\nInvalid command.\nPlease input either 'IC' to ignore the custom pause, 'II' to ignore the indexed pause, 'RNI' to move to a random new index or 'SMI' to set a manual index.")
+                elif inString == "IC":
+                    print("Ignoring the custom pause for '"+ songName +"'.\n")
+                    return 'IC'
+                elif inString == "II":
+                    print("Ignoring the indexed pause for index "+ index +".\n")
                     return 'II'
-                else:
-                    print("No more locations available. Please ignore either the custom or the indexed pause.")
-            elif inString == "SMI":
-                print("Manually setting a new index.\n")
-                
-                if len(randoms) == 0:
-                    print("No more locations available. Please ignore either the custom or the indexed pause.")
-                else:
-                    print("Please enter a new index from the below list. If you wish to use another command, type 'UP'.\n")
-                    print(np.sort(randoms))
-                    while True:
-                        newIndex = input()
-                        if newIndex == "UP":
-                            break
-                        else:
-                            try:
-                                newIndex = int(newIndex)
-                                if newIndex not in randoms:
-                                    print("Please pick an index from the list given above.")
+                elif inString == "RNI":
+                    print("Assigning the indexed pause with a random new index.\n")
+                    if len(randoms) > 0:
+                        newIndex = np.random.choice(randoms,replace=False)
+                        self.effects["DIR-pauses-index"][str(newIndex)] = self.effects["DIR-pauses-index"][str(index)]
+                        del self.effects["DIR-pauses-index"][str(index)]
+                        return 'II'
+                    else:
+                        print("No more locations available. Please ignore either the custom or the indexed pause.")
+                elif inString == "SMI":
+                    print("Manually setting a new index.\n")
+                    
+                    if len(randoms) == 0:
+                        print("No more locations available. Please ignore either the custom or the indexed pause.")
+                    else:
+                        print("Please enter a new index from the below list. If you wish to use another command, type 'UP'.\n")
+                        print(np.sort(randoms))
+                        while True:
+                            newIndex = input()
+                            if newIndex == "UP":
+                                break
+                            else:
+                                try:
+                                    newIndex = int(newIndex)
+                                    if newIndex not in randoms:
+                                        print("Please pick an index from the list given above.")
+                                        continue
+                                    else:
+                                        self.effects["DIR-pauses-index"][str(newIndex)] = self.effects["DIR-pauses-index"][str(index)]
+                                        del self.effects["DIR-pauses-index"][str(index)]
+                                        return 'II'
+                                except:
+                                    print("Error - please enter an integer.")
                                     continue
-                                else:
-                                    self.effects["DIR-pauses-index"][str(newIndex)] = self.effects["DIR-pauses-index"][str(index)]
-                                    del self.effects["DIR-pauses-index"][str(index)]
-                                    return 'II'
-                            except:
-                                print("Error - please enter an integer.")
-                                continue
             
      #Help function to find the indices for a list of songs in a larger list of songs
     def findIndices(self,songList,songs):
@@ -608,54 +636,6 @@ class Klub100(object):
         self.songs = songs
         self.positions = positions
                       
-    
-    
-    #hest
-    def generateKlub100(self,url,songName,randomBool,seed):
-        songsList = self.initSongs(randomBool,songName,seed,self.songs,self.positions)
-        
-        BumsernesKlub100 = AudioSegment.empty()
-        BumsernesKlub100 += self.effects["intro"]
-        
-        print("\nNow stitching the songs...")
-        
-        #Loop begin
-        i = 0
-        songcounter = 1
-        while songcounter <= self.length:
-            print('Qwabs100 is at song',songcounter,'out of '+str(self.length))
-            name = songName[songsList[i]]
-            song = self.loadSoundClip(self.loc + "songs\\" + name + ".mp4", self.normVol)
-            # Adds fade in and fade out to the song
-            song = song.fade_in(2000).fade_out(2000)
-            
-            #Add any potential song overlays
-            for k in self.songOverlaySettings:
-                overlayedSong = self.overlaySoundSongname(name,song,*k)
-                if overlayedSong != False:
-                    song = overlayedSong
-
-
-            #Add either a custom pause or random pause 
-            customPause = self.customPause(i,name,song)
-            if customPause != False:
-                song = customPause
-            elif i > 0:
-                song,speed,loopnumbers = self.insertRandomPause(song,seed)              
-
-            i += 1
-            songcounter += 1
-            BumsernesKlub100 += song
-        #Loop end
-        
-        # Adds the outro file to the output file
-        BumsernesKlub100 += self.effects["outro"]
-        print("Done sticthing. Now exporting the file - this might take some time.\n")
-
-        # Exports the output file
-        BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
-        print('Seed used was {}'.format(self.seed))
-        print('bonsjuar madame')
         
     # Function to add settings from a sound overlay    
     def addSoundOverlay(self,overlaySongName,clips,positions,db=10):
@@ -710,16 +690,18 @@ class Klub100(object):
         
     def helpShoutoutDownloads(self,shoutoutLoc,shoutout,index,prefix,lan,shoutoutLength):
         if os.path.isfile(shoutoutLoc + str(index) + "_" +prefix + shoutout + "_" + lan +".mp3") == False:
-            print("Downloading shoutout '" + shoutout + "', {}".format(index+1)+" out of "+str(shoutoutLength))
+            print("Downloading any mhoutout '" + shoutout + "', {}".format(index+1)+" out of "+str(shoutoutLength))
             # try:
             sound = gt(prefix + " " + shoutout,lang=lan)
             sound.save("effects\\shoutout\\" + str(index) +"_"+ prefix + shoutout + "_" + lan +".mp3") 
+            return True
         else:
-            print("No missing shoutouts. Continuing.")
+            return False
+  
 
     def downloadShoutouts(self,shoutouts,prefix,lan):
         shoutoutLoc = self.loc + "effects\\shoutout\\"
-        print("\nDownloading missing shoutouts from Google Translate.")
+        print("\nDownloading any missing shoutouts from Google Translate.")
         
         if type(prefix) is not str:
             if len(prefix) == 1:
@@ -751,354 +733,212 @@ class Klub100(object):
         if type(lan) == str:
             lan = np.repeat(lan,len(shoutouts))
             
+        
         shoutoutLength = len(shoutouts)
+        downloadedBool = []
         for k in range(shoutoutLength):
-            self.helpShoutoutDownloads(shoutoutLoc,shoutouts[k],k,prefix[k],lan[k],shoutoutLength)
+            downloadedBool.append(self.helpShoutoutDownloads(shoutoutLoc,shoutouts[k],k,prefix[k],lan[k],shoutoutLength))
        
+        if not any(downloadedBool):
+            print("No missing shoutouts. Continuing.")
+        
         if self.indexedShoutoutBool:
             string = "The shoutouts are used as indexed pauses. This means that any indexed pauses in the directory 'pauses-index' will not be used. If you wish to use a combination of the two, please disable the 'indexedShoutoutBool'-boolean and move the respective files between the relevant folders."
         else:
-            string = "The shoutouts are not used as indexed pauses and will only be enabled if you enable randomshoutoutsif you add the folder as a random pause. If you wish to use the shoutouts as indexed pauses, please enable the 'indexedShoutoutBool'-boolean."
+            string = "The shoutouts are not used as indexed pauses and will only be enabled if you add the folder as a random pause. If you wish to use the shoutouts as indexed pauses, please enable the 'indexedShoutoutBool'-boolean."
         print("Finished!\n\n" + string)
-                    
-
-
-# der skal tilføjes funktionalitet til at:
-    
-# man skal kunne tvinge givne sange til at være med hvis der trækkes tilfældige sange fra listen
-#TJEK
-    
-# mappe med pauser i rækkefølge "1_hest.m4a" som indlæses på det respektive index
-    # hvis overlap med pauses skal der ske noget (input prompt, pauses trumfer eller andet)
-#TJEK
-    #man skal måske kunne vælge en standardindstilling?
-
-
-#funktionalitet til at tilføje tilfældige pauser fra en eller flere mapper
-    # TJEK
-
-#seeds skal virke igen
-
-#der skal kunne tilføjes overlays hvis givne conditions opfyldes
-    #ex: et random overlay, der har en qwabs mellem 0.2 og 2 hastighed: der afspilles et bundklip hvis minimumhastigheden af overlays er under 0.3
         
-#chance for at tilfældige sange mashes
-#chance for at en given sang ændres til dobbelt eller halv hastighed 
+        
+              
+    def randomSpeedChange(self,song,chance,speed,seed,effect=None):
+        np.random.seed(seed)
+        randomNum = np.random.random()
+        
+        if randomNum < chance:
+            songOut = AudioSegment.empty()
+            if effect is not None:
+                songOut += effect
+                
+            speedChangedSong = self.speedChange(song,speed)
+            songOut += speedChangedSong
+            return [songOut,["randomNum"],[randomNum]]
+        else:
+            return [song,["randomNum"],[randomNum]]
+
+    def randomMashup(self,chance,currentSong,nextSongName,seed,effect=None):
+        np.random.seed(seed)
+        randomNum = np.random.random()
+        
+        if randomNum < chance:
+            initTime = 0
+            
+            mashedSong = AudioSegment.empty()
+            if effect is not None:
+                mashedSong += effect
+                initTime = effect.duration_seconds
+                
+            nextSong = self.loadSoundClip(self.loc + "songs\\" + nextSongName + ".mp4", self.normVol)
+            mashedSong += currentSong.overlay(nextSong,position=initTime*1000)  
+            return mashedSong
+        else:
+            return currentSong
+        
+    def addRandomMash(self,chance,effect=None):
+        self.randomMashAddedBoolean = True
+        self.mashSettings = [chance,effect]
+        
+
+       
+    #hest
+    def generateKlub100(self,url,songName,randomBool,seed):    
+        songsList = self.initSongs(randomBool,songName,seed,self.songs,self.positions)
+        self.songsList = songsList
+        
+        BumsernesKlub100 = AudioSegment.empty()
+        BumsernesKlub100 += self.effects["intro"]
+        
+        print("\nNow stitching the songs...")
+        
+        #Loop begin
+        i = 0
+        songcounter = 1
+        while songcounter <= self.length:
+            print('Qwabs100 is at song',songcounter,'out of '+str(self.length))
+            name = songName[songsList[i]]
+            song = self.loadSoundClip(self.loc + "songs\\" + name + ".mp4", self.normVol)
+            # Adds fade in and fade out to the song
+            song = song.fade_in(2000).fade_out(2000)
+            
+            #Add any potential song overlays
+            for k in self.songOverlaySettings:
+                overlayedSong = self.overlaySoundSongname(name,song,*k)
+                if overlayedSong != False:
+                    song = overlayedSong
+                    
+            #Add a potential mashup
+            if self.randomMashAddedBoolean and i < len(url):
+                chance = self.mashSettings[0]
+                effect = self.mashSettings[1]
+                song = self.randomMashup(chance,song,songName[i+1],seed,effect)
+                i += 1
+                                
+            self.name = name
+            self.i = i
+            #Loops to determine conditional effects
+            idList = list(self.conditionsDict.keys())
+            for ID in idList:
+                
+                compoundList = self.conditionsDict[ID][0]
+                callableList = [f for f in compoundList if callable(f)]
+                booleanList = [b for b in compoundList if not(callable(b))]
+                
+                callableBool = True
+                for j in callableList:
+                    if not j(*self.conditionsDict[ID][1]):
+                        callableBool = False
+
+                if all(booleanList) and callableBool:
+                    settings = self.conditionsDict[ID][2]
+                    out = self.conditionsDict[ID][3](song,*settings)
+                    song = out[0]
+                    outStrings = out[1]
+                    outSettings = out[2]
+                    
+                    localStatusDict = {}
+                    for k in range(len(outStrings)):
+                        localStatusDict[outStrings[k]] = outSettings[k]
+                        
+                    localStatusDict["index"] = i
+                    localStatusDict["songName"] = songName
+                    self.statusDict[ID] = localStatusDict
+
+
+
+            #Add either a custom pause or random pause 
+            customPause = self.customPause(i,name,song)
+            if customPause != False:
+                song = customPause
+            elif i > 0:
+                song,speed,loopnumbers = self.insertRandomPause(song,seed)              
+
+            i += 1
+            songcounter += 1
+            BumsernesKlub100 += song
+        #Loop end
+        
+        # Adds the outro file to the output file
+        BumsernesKlub100 += self.effects["outro"]
+        print("Done sticthing. Now exporting the file - this might take some time.\n")
+
+        # Exports the output file
+        BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
+        print('Seed used was {}'.format(self.seed))
+        print('bonsjuar madame')
+       
+        
+    def compareCurrentSongName(self,name):
+        if self.songName[self.songsList[self.i]] in name:
+            return True
+        return False
     
+    def compareSongNameByRelativeIndex(self,name,index):
+        if self.songName[self.songsList[self.i+index]] in name:
+            return True
+        return False
+
+    def compareCurrentIndex(self,index):
+        if self.i in index:
+            return True
+        return False
+    
+    def addCondition(self,ID,conditions):
+        callableList = [f for f in conditions if isinstance(f,list)]
+        booleanList = [b for b in conditions if not(isinstance(b,list))]
+        conditions = []
+        callableSettings = []
+        for j in callableList:
+            conditions.append(j[0])
+            callableSettings.extend(j[1:])
+        conditions.extend(booleanList)
+        
+        
+        if ID in self.conditionsDict:
+            self.conditionsDict[ID][0] = conditions
+            self.conditionsDict[ID][1] = callableSettings
+        else:
+            self.conditionsDict[ID] = [conditions,callableSettings]
+        
+    def addRandomSpeedChange(self,chance,speed,effect = None, ID = None):
+        conditions = [False]
+        if ID is None:
+            ID = uuid.uuid1()
+            conditions = [True]
+
+        settings = [chance,speed,self.seed,effect]
+        if ID not in self.conditionsDict:
+            self.conditionsDict[ID] = [conditions,[],settings,self.randomSpeedChange]
+        else:
+            self.conditionsDict[ID].extend([settings,self.randomSpeedChange])
+
     
 # Reading sound files
 normVol = -20
-loc = "C:\\Users\\Marcus\\Desktop\\k100\\Klub100\\"
-length = 10
-test = Klub100(loc,normVol,length,localBool=False,)
+# C:\Users\Marcus\OneDrive - Danmarks Tekniske Universitet\klub200
+loc = "C:\\Users\\Marcus\\OneDrive - Danmarks Tekniske Universitet\\klub200\\"
+length = 2
+test = Klub100(loc,normVol,length=length,standardPauseConflictSetting="IC",localBool=False)
 
 # test.addSoundOverlay('helmig', test.effects["DIR-pat"], [30.5,36.5,42.5,48,53.5])
-# test.addForcedSongs(["helmig"],[4])
+test.addForcedSongs(["helmig"],[0])
+# test.addRandomMash(1,test.effects["mashup"])
+
+test.addRandomSpeedChange(1,2,test.effects["turbomode"],ID="hest")
+test.addCondition("hest",[[test.compareSongNameByRelativeIndex,"helmig",-1]])
 
 # test.addRandomPause(0.3,test.effects["DIR-bund"])
 # test.addRandomMashedPause(0.7,test.effects["kwabs"]) 
 
-# test.generateKlub100(test.url, test.songName,randomBool=True,seed=None)
-
-#%%
-#Define the song location
-shoutoutLoc = loc + "shoutout\\"
-prefix = ["hest"]
-lan = "da"
-shoutouts = ["hest","hello"]
-
-    
+test.generateKlub100(test.url,test.songName,randomBool=True,seed=None)
 
 
-# #dict.fromkeys to remove duplicate values
-# numberOfShoutouts = len(shoutouts)
-# numberOfMissingShoutouts = numberOfSongs-len(glob.glob(songLoc+'*.*'))
-
-# if numberOfShoutouts == 0:
-#     print("No shoutouts given. To add a shoutout, write a sentence or word in the fourth column of the data sheet.")
-# elif numberOfMissingShoutouts > 0:
-
-#     print("Downloading {} missing shoutout(s) out of {}".format(numberOfMissingShoutouts,numberOfShoutouts) + " in total.")
-#     for i in range(shoutouts):
-       
-    
-
-# else:
-#    if numberOfMissingSongs < 0:
-#        self.compareFiles(songLoc,songName)               
-#    else:
-#     print("No missing songs found, continuing.")
-# print("\næøæøæøæøæøæøøææøøæøæ bund")
-
-        
-
-#%%
-count1 = 0
-count2 = 0
-for k in range(100):
-    joke = test.initSongs(True,songName,["helmig","the sign","model"],[0,3,None])[0:length]
-    index = np.where(joke==132)[0][0]
-    if index == 1:
-        count1 += 1
-    elif index == 2:
-        count2 += 1
-    else:
-        print("fuck")
-        break
-print(count1)
-print(count2)    
-    
-# print(np.where(joke==107))
-
-# hest = np.where(joke[0:length]==107)[0]
-
-print(joke[0:length])
-            
-# print(test.initSongs(True,songName,["helmig"])[0:length])
-
-
-# test.generateKlub100(test.url, test.songName, test.seed)
- 
-
-#%% Alt under dette er gammel kode der skal skrives om
-# 
-
-
-#%%
-# Defines the output file
-BumsernesKlub100 = AudioSegment.empty()
-BumsernesKlub100 += intro
-
-
-#%%
-np.random.seed(randomSeed)
-seeds = np.random.randint(0,99999999,20000)
-
-np.random.seed(seeds[0])
-randomSongsList = np.random.choice(len(url),len(url),replace=False)
-
-np.random.seed(seeds[1])
-randomQwabs = np.random.randint(0,100)
-
-np.random.seed(seeds[2])
-randomturbo = np.random.randint(5,11)
-
-np.random.seed(seeds[3])
-turbolist = np.random.randint(0,100,randomturbo)
-
-np.random.seed(seeds[4])
-randompadde = np.random.randint(5,11)
-
-np.random.seed(seeds[5])
-paddelist = np.random.randint(0,100,randompadde)
-
-print("\nNow stitching the songs...")
-
-i = 0
-songcounter = 1
-while songcounter <= 100:
-    new = songName[i]
-    song = AudioSegment.from_file(songLoc + new + songFile)
-    song = match_target_amplitude(song, normVol)
-    # Defines the starttime and the endtime of the song
-    startTime = startSec[i]*1000
-    endTime = startTime+60*1000
-    # Applies the new times of the song
-    songNew = song[startTime:endTime]
-
-    # Adds fade in and fade out to the song
-    songNew = songNew.fade_in(2000).fade_out(2000)
-    
-    np.random.seed(seeds[6+i*100])
-    chance = np.random.random()
-    
-    np.random.seed(seeds[7+i*100])
-    hellochance = np.random.random()
-    
-    np.random.seed(seeds[8+i*100])
-    mashupchance = np.random.random()
-    
-    
-    randomHelloBool = False
-    randomQwabsBool = False
-          
-    
-    if chance <= 0.33:
-        np.random.seed(seeds[9+i*100])
-        ranposqwabs = np.random.randint(0,50*1000)
-        
-        np.random.seed(seeds[10+i*100])
-        maxtime = np.random.randint(1,8)
-        slowest = clip.duration_seconds/maxtime
-        
-        ranqwbs,sonic = randomqwabs(clip,3,slowest,2,maxtime,seeds[11+i*100])
-        ranqwbs = ranqwbs+6
-        songNew = songNew.overlay(ranqwbs,position=ranposqwabs)
-        if sonic < 0.33:
-           pos = ranposqwabs+maxtime*1000+0.5*1000
-           
-           bundclip = randomBundClip(bundarray,seeds[12+i*100])
-           
-           timeend = np.int(bundclip.duration_seconds*1000)+pos
-           songNew = lowerVolumeInterval(songNew,pos,timeend,-13)
-           songNew = songNew.overlay(bundclip+10,position=pos)
-           
-        randomQwabsBool = True
-        
-    if hellochance <= 0.15:
-        np.random.seed(seeds[13+i*100])
-        ranposhello = np.random.randint(0,50*1000)
-        
-        np.random.seed(seeds[14+i*100])
-        maxtime = np.random.randint(1,7)
-        
-        slowest = hello.duration_seconds/maxtime
-        ranhello,AAAAA = randomqwabs(hello,4,slowest,1.5,maxtime,seeds[15+i*100])
-        ranhello = ranhello+6
-        songNew = songNew.overlay(ranhello,position=ranposhello)
-        randomHelloBool = True
-        
-    
-    if randomQwabsBool and randomHelloBool:
-        
-        bundposition = max(ranposhello,ranposqwabs)
-        pos = bundposition+maxtime*1000+0.5*1000
-        
-        bundclip = randomBundClip(bundarray,seeds[16+i*100])
-        timeend = np.int(bundclip.duration_seconds*1000)+pos
-        songNew = lowerVolumeInterval(songNew,pos,timeend,-13)
-        songNew = songNew.overlay(bundclip+10,position=pos)
-
-    
-    np.random.seed(seeds[17+i*100])
-    mean = np.random.randint(3,11)
-    
-    np.random.seed(seeds[18+i*100])
-    maxtime = np.random.randint(6,11)
-        
-    
-    pause,AAAAAAA = randomqwabs(clip,mean,0.2,2,maxtime,seeds[19+i*100])
-    # Adds song and clip to the output file, except for the first clip
-    if i > 0:
-        if new == "cat":
-            kat = AudioSegment.from_file(loc + "\\kat.m4a")
-            kat += songNew
-            BumsernesKlub100 += kat
-        else:
-            BumsernesKlub100 += pause
-            
-            
-    if i in turbolist and i in paddelist:
-        FUCK = AudioSegment.empty()
-        FUCK += turbomode
-        FUCK = FUCK.overlay(skildpadde,position=0)
-        FUCKpos = FUCK.duration_seconds
-        
-        FUCK += songNew
-        
-        turbobundarr = np.empty(2,dtype=object)
-        for k in range(2):
-            bundehest,ssas = randomqwabs(bundarray[k],1,0.5,1.3,60,seed=seeds[22+i*100])
-            turbobundarr[k] = bundehest
-            
-            
-        #overlay from the list of clips
-        turbobund = turbobundarr[0]
-            
-        for k in range(1,2):
-            turbobund = turbobund.overlay(turbobundarr[k],position=0)
-        
-            
-        
-        
-        FUCK = FUCK.overlay(turbobund-3,position=FUCKpos*1000)
-        
-        songNew = FUCK
-            
-        
-    elif i in turbolist:
-        hestesang = AudioSegment.empty()
-        songNew = speed_change(songNew,2)
-        
-        hestesang += turbomode
-        hestesang += songNew
-        songNew = hestesang    
-        
-    elif i in paddelist:
-       hestesang = AudioSegment.empty()
-       songNew = speed_change(songNew,0.5)
-       
-       hestesang += skildpadde
-       hestesang += songNew
-       songNew = hestesang
-       
-       
-       
-        
-    helmigboolean = False
-    mashupboolean = False
-    
-    if new == "helmig":
-        helmigboolean = True
-        
-    if mashupchance <= 0.02 and i < len(url):
-        nameB = songName[i+1] 
-        songB = AudioSegment.from_file(songLoc + nameB + songFile)
-        songB = match_target_amplitude(songB, normVol)
-
-        # Defines the starttime and the endtime of the song
-        startTime = startSec[i+1]*1000
-        endTime = startTime+60*1000
-        # Applies the new times of the song
-        songNewB = songB[startTime:endTime]
-    
-        # Adds fade in and fade out to the song
-        songNewB = songNewB.fade_in(2000).fade_out(2000)
-        
-        if nameB == "helmig":
-                helmigboolean = True
-            
-        songNew = songNew.overlay(songNewB,position=0)
-        joke = AudioSegment.empty()
-        joke += mashup
-        joke += songNew
-        
-        songNew = joke
-        mashupboolean = True
-        
-        
-    if helmigboolean:
-        posarray = np.array([30500,36500,42500,48000,53500])
-        for j in range(5):
-            songNew = songNew.overlay(patarray[j]+10,position=posarray[j])
-        
-   
-    if mashupboolean:
-        i += 2
-    else:
-        i += 1
-        
-    songcounter += 1
-    
-    if i == randomQwabs:            
-        waeoe,AAAAAAA = randomqwabs(clip,15,0.2,2,60,seeds[21+i*100])
-        
-        if mashupboolean:
-            songNew = songNew.overlay(waeoe,position=0)
-        else:
-            songNew = waeoe
-            
-        songNew = songNew.fade_in(2000).fade_out(2000)
-        songNew = match_target_amplitude(songNew, normVol)
-        
-    BumsernesKlub100 += songNew
-    print('Qwabs100 is at song',songcounter-1,'out of 100')
-
-# Adds the outro file to the output file
-BumsernesKlub100 += outro
-
-# Exports the output file
-BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(randomSeed) + '.wav')
-print('Seed used was {}'.format(randomSeed))
-print('bonsjuar madame')
-
+#Mangler kun tilfældige overlays og så renskrive conditionals
