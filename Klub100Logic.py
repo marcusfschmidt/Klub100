@@ -15,6 +15,7 @@ import sheets
 import urllib.request
 from gtts import gTTS as gt
 import uuid
+import subprocess
 
 
 #Klub100 class 
@@ -56,6 +57,9 @@ class Klub100(object):
         #Dictionary to hold info about pauses
         self.pauseDict = {}
         self.pauseCounterDict = {}
+        
+        #More dictionaries :)
+        self.limitedPauseDictCount = {}
         
         #Dictionaries to hold information about conditional effects
         self.conditionsDict = {}
@@ -163,35 +167,49 @@ class Klub100(object):
 
         for file in filenames:
                 if file not in songsFromDataFrame.tolist():
-                    if self.connect():
-                        print("'" +file+".mp4'" + " is available locally but not in Google Sheets.")
-                    else:
-                        print("'" +file+".mp4'" + " is available locally but not in the local .xlsx-file.")
+                    print("'" +file+".mp4'" + " is available locally but not in the used sheet.")
+                   
 
        
 
     #Download songs using Google Sheets API (if internet) or using a local Excel
     def downloadSongs(self,loc,url,startSec,songName):
+        
         #Define the song location
         songLoc = loc + "songs\\"
         
         #dict.fromkeys to remove duplicate values
         numberOfSongs = len(dict.fromkeys(url))
         numberOfMissingSongs = numberOfSongs-len(glob.glob(songLoc+'*.*'))
-            
+
         if numberOfMissingSongs > 0:
             print("Downloading {} missing song(s) out of {}".format(numberOfMissingSongs,numberOfSongs) + " in total.")
             for i in range(len(url)):
                 # Renames the song
-                if os.path.isfile(songLoc + songName[i] + '.mp4') == False:
+                filename = songLoc + songName[i]
+                if os.path.isfile(filename + ".mp4") == False:
                     print("Downloading song " + songName[i] + ", {}".format(i+1)+" out of "+str(len(url)))
-                    try:
-                        # Downloads the youtube audio
-                        youtube = pytube.YouTube(url.loc[i])
-                        song = youtube.streams.get_audio_only()
-                        out = song.download(songLoc)
-                        os.rename(out,songLoc + songName[i] + '.mp4')
-                        
+                    try:     
+                    #For some reason, youtube-dl is atm very slow compared to pytube.
+                    #Using pytube for youtube downloads, and youtube-dl for anything else.
+                        if url[i].find("youtube") == -1:
+                            process = subprocess.Popen(['youtube-dl',
+                                    '--extract-audio',
+                                    '--audio-format', 'm4a',
+                                    '--audio-quality','0',
+                                    '-o', filename + ".m4a", url[i]],
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+                            _, err = process.communicate()
+                            # print(err)
+                            os.rename(filename + ".m4a",songLoc + songName[i] + '.mp4')
+               
+                        else:
+                            youtube = pytube.YouTube(url.loc[i])
+                            song = youtube.streams.get_audio_only()
+                            out = song.download(songLoc)
+                            os.rename(out,songLoc + songName[i] + '.mp4')
+                                
                         #Only save the minute needed for the final klub100
                         song = self.loadSoundClip(songLoc+songName[i]+'.mp4')
                         startTime = startSec[i]*1000
@@ -200,13 +218,14 @@ class Klub100(object):
                         song.export(songLoc + songName[i] + '.mp4',format="mp4")
                     except:
                         print("Error downloading '"+songName[i]+"', skipping.")
+        
         else:
            if numberOfMissingSongs < 0:
                self.compareFiles(songLoc,songName)               
            else:
             print("No missing songs found, continuing.")
         print("\næøæøæøæøæøæøøææøøæøæ bund")
-        
+
 
     # def downloadShoutouts(self,shoutouts):
     #     for k in shoutouts
@@ -304,11 +323,15 @@ class Klub100(object):
         number = self.pois(mean,seed)
         
         speeds = [random.uniform(speedLow,speedHigh) for x in range(number)]
-        
+       
         hestetal = clip.duration_seconds
-        loopnumber = np.int(np.ceil(maxtime/(speedLow*hestetal)))
-        
+        loopnumber = np.int(np.ceil(maxtime/(min(speeds)*hestetal)))
         cliplist = np.empty(number,dtype=object)
+        numOfEffects = sum(([maxtime/hestetal*x for x in speeds]))
+        
+        
+
+        
         # Loop loopnumber of times
         for i in range(number):
             cliplist[i] = AudioSegment.empty()
@@ -328,9 +351,10 @@ class Klub100(object):
                 clipOut = clipOut.overlay(cliplist[i],position=0)
                 
         clipOut = clipOut[0:maxtime*1000]
-        return clipOut,speeds,loopnumber
+        return clipOut,speeds,numOfEffects
     
-    def randomSoundEffect(self,effectDir):
+    def randomSoundEffect(self,effectDirName):
+        effectDir = self.effects[effectDirName]
         randomNumber = random.randrange(0,len(effectDir))
         return effectDir[randomNumber]
     
@@ -400,32 +424,45 @@ class Klub100(object):
     #Help function to make a random sound sequence (qwabs)
     def randomPause(self,song,effect,slow=0.2,fast=2,meanMin=3,meanMax=11,timeMin=5,timeMax=8):
         mean, time = self.randomSoundMashupRandomVariables(meanMin,meanMax,timeMin,timeMax)
-        qwabs, speeds,loopnumber = self.randomSoundMashup(effect,mean,slow,fast,time)
+        qwabs, speeds,numOfEffects = self.randomSoundMashup(effect,mean,slow,fast,time)
         songOut = self.addPauseBeforeSong(song,qwabs)        
-        return songOut,speeds,loopnumber,slow,fast,meanMin,meanMax,mean,timeMin,timeMax,time
+        return songOut,speeds,numOfEffects,slow,fast,meanMin,meanMax,mean,timeMin,timeMax,time
     
     #Function to overlay a song with soundclip(s) 
-    def overlaySound(self,song,clips,positions,db):
-        if np.size(clips) != np.size(positions):
+    def overlaySound(self,song,clips,pos,db):
+        # print(type(clips))
+        if not isinstance(clips,np.ndarray):
+            clips = [clips]
+
+        # print(clips)
+        # print(pos)
+            
+        if len(clips) != np.size(pos):
             raise Exception("Number of clips do not match number of positions")
         else:
             songOut = song
-            if np.size(clips) > 1:
+            if len(clips) > 1:
                 for i in range(np.size(clips)):
-                    songOut = songOut.overlay(clips[i]+db,position=positions[i])
+                    time = clips[i].duration_seconds
+                    songOut = self.lowerVolumeInterval(songOut, pos[i], time*1000+pos[i], db)
+                    songOut = songOut.overlay(clips[i],position=pos[i])
             else:
-                songOut = songOut.overlay(clips+db,position=positions)
-            return songOut
+                time = clips[0].duration_seconds
+                songOut = self.lowerVolumeInterval(songOut, pos, time*1000+pos, db)
+                songOut = songOut.overlay(clips[0],position=pos)
+                
+            return [songOut,["positions"],[pos]]
+
         
-    #Function to overlay the current song in the loop with a given song as read from the sound effects
-    def overlaySoundSongname(self,currentSongName,song,overlaySongName,clips,positions,db):
-        if overlaySongName != currentSongName:
-            return False
-        else:
-            #Add a boolean to a dict that will hopefully be used in other features idk
-            self.songOverlayBooleans[overlaySongName] = True
-            return self.overlaySound(song,clips,positions,db)
-            # return True
+    # #Function to overlay the current song in the loop with a given song as read from the sound effects
+    # def overlaySoundSongname(self,currentSongName,song,overlaySongName,clips,positions,db):
+    #     if overlaySongName != currentSongName:
+    #         return False
+    #     else:
+    #         #Add a boolean to a dict that will hopefully be used in other features idk
+    #         self.songOverlayBooleans[overlaySongName] = True
+    #         return self.overlaySound(song,clips,positions,db)
+    #         # return True
             
     #Function to add clip before song and change the speed
     def soundClipSpeedChange(self,clip,song,speed):
@@ -555,9 +592,8 @@ class Klub100(object):
                     reducedSongsInKlub100 = np.delete(songsInKlub100,listIndices)
    
                     #Two subsets of the reduced output array. This is to stitch them later, taking into account e.g. mashups of songs
-                    reducedList1 = reducedSongsInKlub100[0:lengthDif].tolist()
-                    reducedList2 = reducedSongsInKlub100[lengthDif+1:-1].tolist()
-                    
+                    reducedList1 = reducedSongsInKlub100[0:lengthDif+1].tolist()
+                    reducedList2 = reducedSongsInKlub100[lengthDif+1:].tolist()
                     #List and dictionary for the random forced / positionally forced songs
                     randomForcedSongsList = []
                     positionedForcedSongsList = {}
@@ -605,12 +641,7 @@ class Klub100(object):
         self.songs = songs
         self.positions = positions
                       
-        
-    # Function to add settings from a sound overlay    
-    def addSoundOverlay(self,overlaySongName,clips,positions,db=10):
-        pos = [i*1000 for i in positions]
-        settingsList = [overlaySongName,clips,pos,db]
-        self.songOverlaySettings.append(settingsList)
+    
                
     def addRandomMashedPause(self,weight,effectName,slow=0.2,fast=2,meanMin=3,meanMax=11,timeMin=5,timeMax=8):
         eff = self.effects[effectName]
@@ -627,22 +658,56 @@ class Klub100(object):
         settingsList = [mashBool,weight,effectName,eff]
         self.randomPauses.append(settingsList)
         
+    def addLimitedPause(self,weight,effectName):
+        eff = self.effects[effectName]
+        mashBool = False
+        self.totalWeights += weight
+        
+        if len(eff) > 0:
+            effLength = len(eff)
+        else:
+            effLength = 1
+        
+        ID = uuid.uuid1()
+        self.limitedPauseDictCount[ID] = weight/effLength
+        settingsList = [mashBool,weight,effectName,eff,ID]
+        self.randomPauses.append(settingsList)
+        
+        #not really random lmao
     def chooseRandomPause(self):
         randomNumber = self.randomFloat()
         probsPauses = []
-        for i in self.randomPauses:
+        for count,i in enumerate(self.randomPauses):
             probsPauses.append(i[1]/self.totalWeights)
+
         propsPauses = np.cumsum(probsPauses)
+
         
         idx = self.findNearestGreaterThan(randomNumber,propsPauses)
-        return self.randomPauses[idx][0],self.randomPauses[idx]
+        # print(self.randomPauses[idx][2])
+        return self.randomPauses[idx][0],self.randomPauses[idx],idx
     
     
     def insertRandomPause(self,song):
         if len(self.randomPauses) == 0:
             return [False]
         
-        mashBool,settings = self.chooseRandomPause()
+        
+        while True:
+            mashBool,settings,idx = self.chooseRandomPause()
+            
+            #Check if there are no more effects left to be used in a limited pause
+            if isinstance(settings[4],uuid.UUID) and len(self.randomPauses[idx][3]) == 0:
+                self.randomPauses = np.delete(self.randomPauses,idx,0)
+                continue
+            
+            break
+            
+            
+            
+        
+        
+        
         if settings[2] not in self.pauseCounterDict:
             self.pauseCounterDict[settings[2]] = 1
         else:
@@ -652,21 +717,26 @@ class Klub100(object):
             return True,self.randomPause(song,*settings[3:]),settings[2]
         else:
             eLen = len(settings[3])
+            # print("length of effect folder:" + str(eLen))
              
             if eLen > 0:
                 effectIdx = self.randomInt(0,eLen-1,None)
                 effect = settings[3][effectIdx]
+                
+                #If the fourth element of the settings is a unique ID
+                if isinstance(settings[4],uuid.UUID):
+                    self.randomPauses[idx][3] = np.delete(self.randomPauses[idx][3],effectIdx)
+                    
             else:
                 effect = settings[3]
-                
-                #der skal returnes noget mere her
+
             effectTime = effect.duration_seconds
             return True,(self.addPauseBeforeSong(song,effect),1,1,1,1,1,1,1,effectTime,effectTime,effectTime),settings[2]
         
         
     def helpShoutoutDownloads(self,shoutoutLoc,shoutout,index,prefix,lan,shoutoutLength):
         if os.path.isfile(shoutoutLoc + str(index) + "_" +prefix + shoutout + "_" + lan +".mp3") == False:
-            print("Downloading any mhoutout '" + shoutout + "', {}".format(index+1)+" out of "+str(shoutoutLength))
+            print("Downloading shoutout '" + shoutout + "', {}".format(index+1)+" out of "+str(shoutoutLength))
             # try:
             sound = gt(prefix + " " + shoutout,lang=lan)
             sound.save("effects\\shoutout\\" + str(index) +"_"+ prefix + shoutout + "_" + lan +".mp3") 
@@ -756,158 +826,19 @@ class Klub100(object):
             return mashedSong
         else:
             return currentSong
-        
-    def addRandomMash(self,chance,effect=None):
-        self.randomMashAddedBoolean = True
-        self.mashSettings = [chance,effect]
-        
-
-       
-    #hest
-    def generateKlub100(self,url,songName,randomBool):    
-        songsList = self.initSongs(randomBool,songName,self.songs,self.positions)
-        self.songsList = songsList
-        
-        BumsernesKlub100 = AudioSegment.empty()
-        BumsernesKlub100 += self.effects["intro"]
-        
-        print("\nNow stitching the songs...")
-        
-        #Define ID list and initialise the dictionary that holds the number of times it has been applied
-        idList = list(self.conditionsDict.keys())
-        countDict = {}
-        for ID in idList:
-            countDict[ID] = 0
-        
-        #Loop begin
-        i = 0
-        songcounter = 1
-        while songcounter <= self.length:
-            print('Qwabs100 is at song',songcounter,'out of '+str(self.length))
-            name = songName[songsList[i]]
-            song = self.loadSoundClip(self.loc + "songs\\" + name + ".mp4")
-            # Adds fade in and fade out to the song
-            song = song.fade_in(2000).fade_out(2000)
-            
-            #Add any potential song overlays
-            for k in self.songOverlaySettings:
-                overlayedSong = self.overlaySoundSongname(name,song,*k)
-                if overlayedSong != False:
-                    song = overlayedSong
-                    
-            #Add a potential mashup
-            if self.randomMashAddedBoolean and i < len(url):
-                chance = self.mashSettings[0]
-                effect = self.mashSettings[1]
-                song = self.randomMashup(chance,song,songName[i+1],effect)
-                i += 1
-                                
-            self.name = name
-            self.i = i
-            
-            #Loops to determine conditional effects. This is a clusterfuck
-            for ID in idList:
-                callableList = self.conditionsDict[ID][0]
                
-                conditionsBool = True
-                if not(isinstance(callableList,list)):
-                    func = callableList
-                    if not func(*self.conditionsDict[ID][1]):
-                        conditionsBool = False
-                        
-                elif self.depthCount(callableList) == 1:
-                    for count,func in enumerate(callableList):
-                        if not func(*self.conditionsDict[ID][1][count]):
-                            conditionsBool = False
-                            break
-                        
-                elif self.depthCount(callableList) == 2:
-                    conditionsBoolArr = [True] * len(callableList)
-                    
-                    for orCount,orSettings in enumerate(callableList):
-                        for count,func in enumerate(orSettings):
-                            if not func(*self.conditionsDict[ID][1][orCount][count]):
-                                conditionsBoolArr[orCount] = False
-                                break
-                                
-                    # print(callableBoolArr)
-                    if not(any(conditionsBoolArr)):
-                        conditionsBool = False
-                        
-                if conditionsBool:
-                    settings = self.conditionsDict[ID][2]
-                    out = self.conditionsDict[ID][3](song,*settings)
-                    song = out[0]
-                    outStrings = out[1]
-                    outSettings = out[2]
-                    
-                    localStatusDict = {}
-                    
-                    if countDict[ID] == 0:
-                        indexedStatusDict = {}
-                    else:
-                        indexedStatusDict = self.statusDict[ID]
-                    
-                    for k in range(len(outStrings)):
-                        localStatusDict[outStrings[k]] = outSettings[k]
-                        
-                    localStatusDict["index"] = i
-                    localStatusDict["name"] = name
 
-                    indexedStatusDict[countDict[ID]] = localStatusDict
-                    self.statusDict[ID] = (indexedStatusDict)
-                    
-                    countDict[ID] += 1
-
-            #Add either a custom pause or random pause 
-            customPause = self.customPause(i,name,song)
-            if customPause != False:
-                song = customPause
-            elif i > 0:
-                randomPauseOut = self.insertRandomPause(song)
-                if randomPauseOut[0]:
-                    print(randomPauseOut)
-                    song,speeds,loopnumbers,slow,fast,meanMin,meanMax,mean,timeMin,timeMax,time = randomPauseOut[1]
-                    effectName = randomPauseOut[2]
-                    
-                    localPauseDict = {}
-                    
-                    #The current number of counts for which the effect has been used to make a pause
-                    localPauseDict["currentPauseEffectCounts"] = self.pauseCounterDict[effectName]
-                    
-                    localPauseDict["name"] = name
-                    localPauseDict["effectName"] = effectName
-                    localPauseDict["speeds"] = speeds
-                    localPauseDict["loopnumbers"] = loopnumbers
-                    localPauseDict["slow"] = slow
-                    localPauseDict["fast"] = fast
-                    localPauseDict["meanMin"] = meanMin
-                    localPauseDict["meanMax"] = meanMax
-                    localPauseDict["mean"] = mean
-                    localPauseDict["timeMin"] = timeMin
-                    localPauseDict["timeMax"] = timeMax
-                    localPauseDict["time"] = time
-                    
-                    self.pauseDict[str(i)] = localPauseDict
-
-            i += 1
-            songcounter += 1
-            BumsernesKlub100 += song
-        #Loop end
         
-        # Adds the outro file to the output file
-        BumsernesKlub100 += self.effects["outro"]
-        print("Done sticthing. Now exporting the file - this might take some time.\n")
+#Alt under dette virker (formodentlig), men det er et kæmpe clusterfuck og bør renskrives og streamlines :)
 
-        # Exports the output file
-        BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
-        print('Seed used was {}'.format(self.seed))
-        print('bonsjuar madame')
-           
+    def depthCount(self,x):
+       return int(isinstance(x, list)) and len(x) and 1 + max(map(self.depthCount, x))
+    
     #Add condition to a given random sound effect.
     def addCondition(self,ID,conditions):
         callableList = [f for f in conditions if isinstance(f,list)]
-        
+
+
         if len(callableList) == 0:
             callableSettings = conditions[1:]
             conditions = conditions[0]
@@ -941,11 +872,18 @@ class Klub100(object):
             self.conditionsDict[ID][1] = callableSettings
         else:
             self.conditionsDict[ID] = [conditions,callableSettings]
+            
+    def addRandomMash(self,chance,effect=None):
+        self.randomMashAddedBoolean = True
+        self.mashSettings = [chance,effect]
+   
         
-    def addRandomSpeedChange(self,chance,speed,effect = None, ID = None):
+    def addRandomSpeedChange(self,chance,speed,effectName = None, ID = None):
         if ID is None:
             ID = uuid.uuid1()
         conditions = []
+        
+        effect = None if effectName is None else self.effects[effectName]
 
         settings = [chance,speed,effect]
         if ID not in self.conditionsDict:
@@ -963,38 +901,70 @@ class Klub100(object):
             if mashBool:
                 mean,time = self.randomSoundMashupRandomVariables(meanMin,meanMax,timeMin,timeMax)
                 slow = effect.duration_seconds/time if slow is None else slow
-                randomClip,speeds,loops = self.randomSoundMashup(effect,mean,slow,fast,time)
+                randomClip,speeds,numOfEffects = self.randomSoundMashup(effect,mean,slow,fast,time)
             else:
                 randomClip = effect
                 speeds = 1
-                loops = 1
+                numOfEffects = 1
                 time = effect.duration_seconds
                 
             pos = self.randomInt(minimum=0,maximum=int((58-time)*1000),size=None) if pos is None else pos
             songOut = self.lowerVolumeInterval(song, pos, time*1000+pos, db)
             songOut = songOut.overlay(randomClip,position=pos)
             
-            return [songOut,["randomNum","speeds","loops"],[randomNum,speeds,loops]]
+            return [songOut,["randomNum","speeds","numOfEffects","positions"],[randomNum,speeds,numOfEffects,pos]]
         else:
-            return [song,["randomNum","speeds",loops],[randomNum,speeds,loops]]
+            # speeds = 1
+            # numOfEffects = 1
+            # pos = 0
+            return [song,False]
     
-    def addRandomOverlaySound(self,chance,effect,mashBool=False,db=-15,ID=None,slow=None,fast=2,pos=None,meanMin=3,meanMax=3,timeMin=1,timeMax=7):
+    def addRandomOverlaySound(self,chance,effectName,mashBool=False,db=-15,ID=None,slow=None,fast=2,pos=None,meanMin=3,meanMax=4,timeMin=5,timeMax=8):
         if ID is None:
             ID = uuid.uuid1()
         conditions = []
+        effect = self.effects[effectName]
 
         settings = [mashBool,db,chance,effect,slow,fast,pos,meanMin,meanMax,timeMin,timeMax]
         if ID not in self.conditionsDict:
             self.conditionsDict[ID] = [conditions,[],settings,self.randomOverlaySound]
         else:
             self.conditionsDict[ID].extend([settings,self.randomOverlaySound])
-            
+                 
+    #     # Function to add settings from a sound overlay    
+    # def addSoundOverlay(self,overlaySongName,effectName,positions,db=10):
+    #     clips = self.effects[effectName]
+    #     pos = [i*1000 for i in positions]
+    #     settingsList = [overlaySongName,clips,pos,db]
+    #     self.songOverlaySettings.append(settingsList)
+             
+        # Function to add settings from a sound overlay    
+    def addSoundOverlay(self,effectName,positions,db=-15,ID = None):
+        if ID is None:
+            ID = uuid.uuid1()
+        conditions = []
+        
+        if isinstance(effectName,list):
+            effect = effectName
+            pos = positions
+        else:
+            effect = self.effects[effectName]
+            if isinstance(positions,int):
+                pos = positions
+            else:
+                pos = [i*1000 for i in positions]
+
+        
+        settings = [effect,pos,db]
+
+        if ID not in self.conditionsDict:
+            self.conditionsDict[ID] = [conditions,[],settings,self.overlaySound]
+        else:
+            self.conditionsDict[ID].extend([settings,self.overlaySound])
+############################################################################################
+# Functions used to add conditionals to random effects
+
     
-    #Used to add conditionals to random effects    
-    def lookupCurrentSongName(self,name):
-        return self.lookupSongNameByRelativeIndex(name,0)
-    
-    #Used to add conditionals to random effects  
     def lookupSongNameByRelativeIndex(self,name,index):
         # print(self.i)
         # print(index)
@@ -1004,6 +974,12 @@ class Klub100(object):
             return False
         except:
             return False
+    
+    #Used to add conditionals to random effects    
+    def lookupCurrentSongName(self,name):
+        return self.lookupSongNameByRelativeIndex(name,0)
+    
+    
 
     #Used to add conditionals to random effects  
     def lookupCurrentIndex(self,index):
@@ -1040,22 +1016,36 @@ class Klub100(object):
             dictSpeed = eval(func)(self.statusDict[ID][dictIndex]["speeds"])
             return self.helpCompareLookups(compareStr,dictSpeed,speed)
         except: 
-            print("Error: 'speeds' key not found for the given ID. Ignoring effect.")
-            return False
-    
-    def lookupLoops(self,ID,compareStr,loopnumber,relativeCompareIndex = 0):
-        try:
-            dictIndex = self.helpdictIndex(len(self.statusDict[ID]),relativeCompareIndex)
-            dictLoops = self.statusDict[ID][dictIndex]["loops"]
-            return self.helpCompareLookups(compareStr,dictLoops,loopnumber)
-        except: 
-            print("Error: 'loops' key not found for the given ID. Ignoring effect.")
             return False
         
-    def lookupIndex(self,ID,compareStr,loopnumber,relativeCompareIndex = 0):
+    def lookupNumOfEffects(self,ID,compareStr,num,relativeCompareIndex = 0):
+        try:
+            dictIndex = self.helpdictIndex(len(self.statusDict[ID]),relativeCompareIndex)
+            numOfEffects = self.statusDict[ID][dictIndex]["numOfEffects"]
+            return self.helpCompareLookups(compareStr,numOfEffects,num)
+        except:
+            print("Error: 'numOfEffects' key not found for the given ID. Ignoring effect.")
+            return False
+        
+    def lookupMassNumOfEffects(self,ID,compareStr,num,allBool,relativeCompareIndex = 0,indices = None):
+        boolArr,keyArr = self.helpMassLookup(indices,pauseBool=False,ID=ID)
+        try:
+            for j in range(len(keyArr)):
+                boolArr[j] = self.lookupNumOfEffects(ID,compareStr,num,relativeCompareIndex = 0-j)   
+        except:
+            print("\nError: you are probably experiencing a key-error.")
+            return False
+        
+        if allBool:
+            return all(boolArr)
+        else:
+            return any(boolArr)
+        
+        
+    def lookupIndex(self,ID,compareStr,idx,relativeCompareIndex = 0):
         dictIndex = self.helpdictIndex(len(self.statusDict[ID]),relativeCompareIndex)
-        dictLoops = self.statusDict[ID][dictIndex]["index"]
-        return self.helpCompareLookups(compareStr,dictLoops,loopnumber)
+        lookupIdx = self.statusDict[ID][dictIndex]["index"]
+        return self.helpCompareLookups(compareStr,lookupIdx,idx)
     
     def lookupRandomNum(self,ID,compareStr,num,relativeCompareIndex = 0):
         try:
@@ -1065,6 +1055,21 @@ class Klub100(object):
         except:
             print("Error: 'randomNum' key not found for the given ID. Ignoring effect.")
             return False
+        
+    def helpLookupPosition(self,ID,relativeCompareIndex = 0):
+        dictIndex = self.helpdictIndex(len(self.statusDict[ID]),relativeCompareIndex)
+        return self.statusDict[ID][dictIndex]["positions"]
+    
+    def setPositionByID(self,ID,offset = 0,relativeCompareIndex = 0):
+        dictIndex = self.helpdictIndex(len(self.statusDict[ID]),relativeCompareIndex)
+        return self.statusDict[ID][dictIndex]["positions"] + offset*1000
+    
+    def comparePositions(self,arrID,op,offset,relativeCompareIndex = 0):
+        posArr = [None] * len(arrID)
+        for count,i in enumerate(arrID):
+            posArr[count] = self.helpLookupPosition(i,relativeCompareIndex)
+        return eval(op)(posArr) + offset
+        
     
     def lookupName(self,ID,name,relativeCompareIndex = 0):
         dictIndex = self.helpdictIndex(len(self.statusDict[ID]),relativeCompareIndex)
@@ -1073,9 +1078,8 @@ class Klub100(object):
             return True
         return False
     
-    def depthCount(self,x):
-        return int(isinstance(x, list)) and len(x) and 1 + max(map(self.depthCount, x))
     
+    #Lookups for the pause dictionary.
     def lookupNumericalPauseDict(self,pauseIndex,lookupvalue,op,comparevalue):
         try:
             if eval("self.pauseDict['" + str(pauseIndex) + "']['"+lookupvalue+"']" + op + str(comparevalue)):
@@ -1108,14 +1112,22 @@ class Klub100(object):
             print("\nError: you can only use this function to compare strings - i.e. 'effectName' or the song name 'name' of the relevant pause.\n")
             return False
         
-    def helpMassLookup(self,indices):
+        #Help function for the mass lookups
+    def helpMassLookup(self,indices,pauseBool = True,ID = None):
+        
+        if pauseBool:
+            lookupDict = self.pauseDict
+        else:
+            lookupDict = self.statusDict[ID]
+        
         if indices is None:
-            keyArr = list(self.pauseDict.keys())
+            keyArr = list(lookupDict.keys())
             boolArr = [None] * len(keyArr)
         else:
             keyArr = indices
             boolArr = [None] * len(indices)
         return boolArr,keyArr
+    
     
     def lookupMassStringPauseDict(self,allBool,lookupvalue,comparevalue,indices=None):
         boolArr,keyArr = self.helpMassLookup(indices)
@@ -1153,52 +1165,324 @@ class Klub100(object):
             return all(boolArr)
         else:
             return any(boolArr)
-   
- 
+        
+    def helpLookupEffectPauseDict(self,effectName,lookupvalue,op):
+        try:
+            keyArr = list(self.pauseDict.keys())
+            lookupArr = []
+            
+            for j in keyArr:
+                if self.pauseDict[str(j)]["effectName"] == effectName :
+                    val = self.pauseDict[str(j)][lookupvalue]
+                    lookupArr.append(val)
+            return eval(op)(lookupArr)
+        except:
+            return 0
+        
+    
+    def helpLookupEffectStatusDict(self,ID,lookupvalue,op):
+        try:
+            keyArr = list(self.statusDict[ID].keys())
+            lookupArr = []
+            
+            for j in keyArr:
+                    val = self.statusDict[ID][j][lookupvalue]
+                    lookupArr.append(val)
+            return eval(op)(lookupArr)
+        except:
+            return 0
+    
+    def lookupCountStatusAndPause(self,ID,effectName,lookupvalue,op,countop,compareStr,compareVal):
+        val1 = self.helpLookupEffectPauseDict(effectName,lookupvalue,op)
+        val2 = self.helpLookupEffectStatusDict(ID,lookupvalue,op)
+        
+        arr = [val1,val2]
+        opValue = eval(countop)(arr)
+        
+        return eval(str(opValue) + compareStr + str(compareVal))
+    
+    ################################################################
+    
+     #hest
+    def generateKlub100(self,randomBool):   
+        """
+        Function to generate the Klub100. Awfully written, please do not look.
 
-#%%
+        Parameters
+        ----------
+        randomBool : Boolean to determine whether or not the list of songs is randomised or not. If False, the songs used will simply be the first X in the data sheet, where X is the length of the Klub100.
+
+        """
+
+        songsList = self.initSongs(randomBool,self.songName,self.songs,self.positions)
+        self.songsList = songsList
+        
+        BumsernesKlub100 = AudioSegment.empty()
+        BumsernesKlub100 += self.effects["intro"]
+        
+        print("\nNow stitching the songs...")
+        
+        #Define ID list and initialise the dictionary that holds the number of times it has been applied
+        idList = list(self.conditionsDict.keys())
+        countDict = {}
+        for ID in idList:
+            countDict[ID] = 0
+        
+        #Loop begin
+        i = 0
+        songcounter = 1
+        while songcounter <= self.length:
+            print('Qwabs100 is at song',songcounter,'out of '+str(self.length))
+            name = self.songName[songsList[i]]
+            # print(name)
+            try:
+                song = self.loadSoundClip(self.loc + "songs\\" + name + ".mp4")
+            except:
+                print(name)
+                print(songcounter)
+                break
+            # Adds fade in and fade out to the song
+            song = song.fade_in(2000).fade_out(2000)
+            
+            # #Add any potential song overlays
+            # for k in self.songOverlaySettings:
+            #     overlayedSong = self.overlaySoundSongname(name,song,*k)
+            #     if overlayedSong != False:
+            #         song = overlayedSong
+                    
+                                            
+            self.name = name
+            self.i = i
+            
+            #Loops to determine conditional effects. This is a clusterfuck
+            for ID in idList:
+                callableList = self.conditionsDict[ID][0]
+                # print(callableList)
+                conditionsBool = True
+                
+                
+                #If-statements in order to determine 1) how many conditions to be called
+                # 2) whether any logic should be applied (if depthcount is three, OR-is used)
+                if not(isinstance(callableList,list)):
+                    func = callableList
+                    # print(self.conditionsDict[ID][1])
+                    if not func(*self.conditionsDict[ID][1]):
+                        conditionsBool = False
+                        
+                elif self.depthCount(callableList) == 1:
+                    for count,func in enumerate(callableList):
+                        # print(self.conditionsDict[ID][count])
+                        if not func(*self.conditionsDict[ID][1][count]):
+                            conditionsBool = False
+                            break
+                        
+                elif self.depthCount(callableList) == 2:
+                    conditionsBoolArr = [True] * len(callableList)
+                    
+                    for orCount,orSettings in enumerate(callableList):
+                        for count,func in enumerate(orSettings):
+                            if not func(*self.conditionsDict[ID][1][orCount][count]):
+                                conditionsBoolArr[orCount] = False
+                                break
+                                
+                    if not(any(conditionsBoolArr)):
+                        conditionsBool = False
+                # print(conditionsBool)
+                #If the conditions are met, we call the functions nested in the dictionary with the relevant settings
+                if conditionsBool:
+                    localStatusDict = {}
+
+                    settings = self.conditionsDict[ID][2]
+                    
+                    #If any callables in the settings
+                    callSettingsTuple = [(i,s) for i,s in enumerate(settings) if isinstance(s,list) if callable(s[0])]
+                    
+                    usedSettings = settings.copy()
+                    for tuples in callSettingsTuple:
+                        idx = tuples[0]
+                        funcList = tuples[1]
+                        
+                        # print(funcList[1:])
+                        value = funcList[0](*funcList[1:])
+                        usedSettings[idx] = value
+
+                    out = self.conditionsDict[ID][3](song,*usedSettings)
+                    if isinstance(out, list):
+                        song = out[0]
+                        
+                
+                        #Status outputs to save in a dictionary for other conditions
+                        outStrings = out[1]
+                        if outStrings is False:
+                            continue
+                        
+                        outSettings = out[2]
+                        for k in range(len(outStrings)):
+                            localStatusDict[outStrings[k]] = outSettings[k]
+                    else:
+                        song = out
+                    
+                    if countDict[ID] == 0:
+                        indexedStatusDict = {}
+                    else:
+                        indexedStatusDict = self.statusDict[ID]
+                        
+                    
+                    localStatusDict["index"] = i
+                    localStatusDict["name"] = name
+
+                    indexedStatusDict[countDict[ID]] = localStatusDict
+                    self.statusDict[ID] = (indexedStatusDict)
+                    
+                    countDict[ID] += 1
+                    
+            #Add a potential mashup
+            if self.randomMashAddedBoolean and i < len(self.url)-1:
+                chance = self.mashSettings[0]
+                effect = self.effects[self.mashSettings[1]]
+                # print(i+1)
+                # print(len(self.songName)-i-1)
+                ranIndex = self.randomInt(i+1,len(self.songName)-1,size=None)
+                    
+                song = self.randomMashup(chance,song,self.songName[songsList[ranIndex]],effect)
+                # i += 1
+
+            #Add either a custom pause or random pause 
+            customPause = self.customPause(i,name,song)
+            if customPause != False:
+                song = customPause
+            elif i > 0:
+                randomPauseOut = self.insertRandomPause(song)
+                if randomPauseOut[0]:
+                    song,speeds,numOfEffects,slow,fast,meanMin,meanMax,mean,timeMin,timeMax,time = randomPauseOut[1]
+                    effectName = randomPauseOut[2]
+                    
+                    localPauseDict = {}
+                    
+                    #The current number of counts for which the effect has been used to make a pause
+                    localPauseDict["currentPauseEffectCounts"] = self.pauseCounterDict[effectName]
+                    
+                    localPauseDict["name"] = name
+                    localPauseDict["effectName"] = effectName
+                    localPauseDict["speeds"] = speeds
+                    localPauseDict["numOfEffects"] = numOfEffects
+                    localPauseDict["slow"] = slow
+                    localPauseDict["fast"] = fast
+                    localPauseDict["meanMin"] = meanMin
+                    localPauseDict["meanMax"] = meanMax
+                    localPauseDict["mean"] = mean
+                    localPauseDict["timeMin"] = timeMin
+                    localPauseDict["timeMax"] = timeMax
+                    localPauseDict["time"] = time
+                    
+                    self.pauseDict[str(songcounter)] = localPauseDict
+
+            i += 1
+            songcounter += 1
+            BumsernesKlub100 += song
+        #Loop end
+        
+        # Adds the outro file to the output file
+        BumsernesKlub100 += self.effects["outro"]
+        print("Done sticthing. Now exporting the file - this might take some time.\n")
+
+        # Exports the output file
+        BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
+        print('Seed used was {}'.format(self.seed))
+        print('bonsjuar madame')
+           
+        ################################################################
+    
+    def lookupLatestIndexByID(self,ID):
+        try:
+            dictIndex = self.helpdictIndex(len(self.statusDict[ID]),0)
+            # print("Current index:\n")
+            # print(self.i)
+            # print("\n\n Last index of ID:\n")
+            # print(self.statusDict[ID][dictIndex]["index"])
+            # print(self.i)
+            if self.statusDict[ID][dictIndex]["index"] == self.i:
+                return True
+            return False
+        except:
+            return False
+    
+    def lookupLengthOfDictionary(self,ID,compareStr,compareval):
+        try:
+            ln = len(self.statusDict[ID])
+            return eval(str(ln) + compareStr + str(compareval))
+        except:
+            if compareStr == "<":
+                return True
+            elif compareStr == ">":
+                return False
+            else:
+                return False
 
 loc = "C:\\Users\\Marcus\\OneDrive - Danmarks Tekniske Universitet\\klub200\\"
-length = 10
-test = Klub100(loc,length=length,standardPauseConflictSetting="IC",localBool=False,seed=31781)
 
-# test.addSoundOverlay('helmig', test.effects["DIR-pat"], [30.5,36.5,42.5,48,53.5])
-# test.addForcedSongs(["helmig","cat"],[0,2])
-# # test.addRandomMash(1,test.effects["mashup"])
-
-# test.addRandomSpeedChange(0.5,2,test.effects["turbomode"],ID="hest")
-# test.addCondition("hest",[
-#     [test.lookupCurrentSongName,"helmig"]
-#                           ])
-
-test.addRandomOverlaySound(1, test.effects["kwabs"],mashBool=True,ID="hest",slow=0.1,fast=1)
-# test.addCondition("hest",[
-#     [[test.lookupCurrentSongName,"helmig"]],
-#     [[test.lookupCurrentSongName,"cat"]]
-#     ])
-
-# test.addRandomOverlaySound(1,test.effects["DIR-bund"],ID="bund")
-# settings1 = [[test.lookupSongNameByRelativeIndex,"helmig",-1]]
-# settings2 = [[test.lookupSongNameByRelativeIndex,"helmig",+1]]
-
-# test.addCondition("bund",[settings1,settings2])
-
-test.addRandomPause(0.3,"DIR-bund")
-test.addRandomMashedPause(0.7,"kwabs") 
-
-test.generateKlub100(test.url,test.songName,randomBool=True)
+#Længden af din Klub100
+length = 100
 
 
 #
-#%%
-def lookupMassNumericalPauseDict(indices=None):
-        if indices is None:
-            keyArr = list(self.pauseDict.keys())
-            boolArr = [] * len(keyArr)
-            
-            for j in keyArr):
-                
-    
-lookupMassNumericalPauseDict()
-    
-    
+test = Klub100(loc,length=length,localBool=False)
+
+# Prob for random mashup
+test.addRandomMash(0.01,"mashup")
+
+#qwabs100gange lydklip når man har hørt mere end 100 qwabs
+test.addSoundOverlay("qwabs1000gange",positions=0,ID="1000kwabs")
+test.addCondition("1000kwabs",[[test.lookupLengthOfDictionary,"1000kwabs","<",1],[test.lookupCountStatusAndPause, "ranKwabs","kwabs","numOfEffects","sum","sum",">",1000]])
+
+#Hey kællinger vis jeres heste og kattesang
+test.addForcedSongs(["helmig","cat","de ja vu"])
+test.addSoundOverlay("DIR-pat", [30.5,36.5,42.5,48,53.5],ID="helmig",db=0)
+test.addCondition("helmig", [test.lookupCurrentSongName,"helmig"])
+
+#2 percent chance for turbo mode
+test.addRandomSpeedChange(0.02,2,"turbomode")
+
+#2 percent chance for turtle
+test.addRandomSpeedChange(0.02,0.5,"skildpadde")
+
+#de ja vu dobbelt
+test.addRandomSpeedChange(1,2,ID = "dejavu")
+test.addCondition("dejavu",[test.lookupCurrentSongName,"de ja vu"])
+
+#random overlays
+test.addRandomOverlaySound(0.2,"kwabs",mashBool=True,ID="ranKwabs",db=0)
+test.addRandomOverlaySound(0.1,"hello",mashBool=True,ID="ranHello",db=0,slow = 0.8,fast=1.5)
+
+#hest
+test.addSoundOverlay([test.randomSoundEffect,"DIR-bund"],[test.setPositionByID,"ranKwabs",1],ID="bundSpeed")
+test.addCondition("bundSpeed",[test.lookupSpeed,"ranKwabs","<",0.25])
+
+
+#bund if hello and kwabs in same song
+test.addSoundOverlay([test.randomSoundEffect,"DIR-bund"],[test.comparePositions,["ranKwabs","ranHello"],"max",1000],ID="bundclip")
+test.addCondition("bundclip",[[test.lookupLatestIndexByID,"ranKwabs"],[test.lookupLatestIndexByID,"ranHello"]])
+                     
+# #pauses
+test.addLimitedPause(0.5,"DIR-michael")
+test.addLimitedPause(0.5,"DIR-shoutout")
+test.addRandomMashedPause(0.5,"kwabs") 
+
+test.generateKlub100(True)
+# husk bundklip hvis hastighed er under hest
+
+
+# #%%
+# length = 5
+
+# test = Klub100(loc,length=length,localBool=False)
+# test.addForcedSongs(["helmig","cat","de ja vu"])
+# test.generateKlub100(True)
+
+
+
+# # url, startSec, songName, shoutouts = test.readSongsAndShoutouts(loc, False)
+# # songs = ["helmig","cat","de ja vu"]
+# # positions = []
+# # songsList = test.initSongs(True,songName,songs,positions)
+# # test.generateKlub100(True)
