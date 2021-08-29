@@ -11,7 +11,7 @@ from pydub import AudioSegment
 import numpy as np
 import random
 import glob
-import sheets
+import klub100sheets as sheets
 import urllib.request
 from gtts import gTTS as gt
 import uuid
@@ -21,7 +21,29 @@ import subprocess
 #Klub100 class 
 class Klub100(object):
     
-    def __init__(self,loc,standardPauseConflictSetting=None,length=100,seed=None,localBool=False,indexedShoutoutBool=False,prefix='',lan='da'):
+    def __init__(self,loc,length=100,seed=None,filename = "k100.xlsx",localBool=False,indexedShoutoutBool=False,prefix='',lan='da'):
+        """
+        Initialise the klub100 object.
+
+        Parameters
+        ----------
+        loc : string.
+            File path to the folder where the output file will be generated and all songs downloaded to.
+        length : int, optional
+            Length of the Klub100. The default is 100.
+        seed : int, optional
+            Seed to be used by the random calls. The default is None.
+        filename: string, optional
+            Name of the local .xlsx-file from which songs are taken.
+        localBool : boolean, optional
+            Boolean to determine whether to use Google Sheets or the local excel file. The default is False.
+        indexedShoutoutBool : boolean, optional
+            Boolean to determine whether any downloaded shoutouts in the shoutouts-folder as indexed pauses. The default is False.
+        prefix : string or list, optional
+            Prefix for the shoutouts. The default is ''.
+        lan : string or list, optional
+            Language for the shoutouts. The default is 'da'.
+        """
         print("Initialising Klub100 of length " + str(length) + ".\n")
         
         #Initialise parameters
@@ -36,9 +58,6 @@ class Klub100(object):
         else:
             self.indexedPauseDir = "DIR-pauses-index"
             
-        #Standard setting in case of pause conflicts
-        self.standardPauseConflictSetting = standardPauseConflictSetting
-        
         #Random mash songs settings
         self.randomMashAddedBoolean = False
                 
@@ -70,7 +89,7 @@ class Klub100(object):
         self.randomPauses = []
     
         #Read and download songs locally or from Sheets
-        url, startSec, songName, shoutouts = self.readSongsAndShoutouts(loc, localBool)
+        url, startSec, songName, shoutouts = self.readSongsAndShoutouts(loc, localBool,filename)
         self.downloadSongs(loc,url,startSec,songName)
         self.downloadShoutouts(shoutouts,prefix,lan)
         
@@ -133,14 +152,14 @@ class Klub100(object):
                 data = sheets.klubhest(loc)
             else: 
                 print("Attempted to gather songs from Google Sheets, but you are not connected to the internet. Gathering from local file instead.")
-                print(loc+ "k100.xlsx")
+                print(loc + filename)
                 # Reads data in excel file 
-                data = pd.read_excel(loc + "k100.xlsx")
+                data = pd.read_excel(loc + filename)
         else:
             print("Gathering songs (and potential shoutouts) from local Excel file.")
-            print(loc+ "k100.xlsx")
+            print(loc + filename)
             # Reads data in excel file 
-            data = pd.read_excel(loc + "k100.xlsx")
+            data = pd.read_excel(loc + filename)
             
 
         
@@ -673,6 +692,7 @@ class Klub100(object):
         settingsList = [mashBool,weight,effectName,eff,ID]
         self.randomPauses.append(settingsList)
         
+
         #not really random lmao
     def chooseRandomPause(self):
         randomNumber = self.randomFloat()
@@ -702,12 +722,7 @@ class Klub100(object):
                 continue
             
             break
-            
-            
-            
-        
-        
-        
+
         if settings[2] not in self.pauseCounterDict:
             self.pauseCounterDict[settings[2]] = 1
         else:
@@ -1204,15 +1219,17 @@ class Klub100(object):
     ################################################################
     
      #hest
-    def generateKlub100(self,randomBool):   
+    def generateKlub100(self,randomBool,standardPauseConflictSetting=None):   
         """
         Function to generate the Klub100. Awfully written, please do not look.
 
         Parameters
         ----------
         randomBool : Boolean to determine whether or not the list of songs is randomised or not. If False, the songs used will simply be the first X in the data sheet, where X is the length of the Klub100.
-
+        
+        standardPauseConflictSetting: String to determine a standard setting in case of pause conflict. "IC" or "II".
         """
+        self.standardPauseConflictSetting = standardPauseConflictSetting
 
         songsList = self.initSongs(randomBool,self.songName,self.songs,self.positions)
         self.songsList = songsList
@@ -1243,14 +1260,7 @@ class Klub100(object):
                 break
             # Adds fade in and fade out to the song
             song = song.fade_in(2000).fade_out(2000)
-            
-            # #Add any potential song overlays
-            # for k in self.songOverlaySettings:
-            #     overlayedSong = self.overlaySoundSongname(name,song,*k)
-            #     if overlayedSong != False:
-            #         song = overlayedSong
-                    
-                                            
+                                                     
             self.name = name
             self.i = i
             
@@ -1387,7 +1397,7 @@ class Klub100(object):
         print("Done sticthing. Now exporting the file - this might take some time.\n")
 
         # Exports the output file
-        BumsernesKlub100.export(loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
+        BumsernesKlub100.export(self.loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
         print('Seed used was {}'.format(self.seed))
         print('bonsjuar madame')
            
@@ -1396,11 +1406,6 @@ class Klub100(object):
     def lookupLatestIndexByID(self,ID):
         try:
             dictIndex = self.helpdictIndex(len(self.statusDict[ID]),0)
-            # print("Current index:\n")
-            # print(self.i)
-            # print("\n\n Last index of ID:\n")
-            # print(self.statusDict[ID][dictIndex]["index"])
-            # print(self.i)
             if self.statusDict[ID][dictIndex]["index"] == self.i:
                 return True
             return False
@@ -1418,71 +1423,3 @@ class Klub100(object):
                 return False
             else:
                 return False
-
-loc = "C:\\Users\\Marcus\\OneDrive - Danmarks Tekniske Universitet\\klub200\\"
-
-#Længden af din Klub100
-length = 100
-
-
-#
-test = Klub100(loc,length=length,localBool=False)
-
-# Prob for random mashup
-test.addRandomMash(0.01,"mashup")
-
-#qwabs100gange lydklip når man har hørt mere end 100 qwabs
-test.addSoundOverlay("qwabs1000gange",positions=0,ID="1000kwabs")
-test.addCondition("1000kwabs",[[test.lookupLengthOfDictionary,"1000kwabs","<",1],[test.lookupCountStatusAndPause, "ranKwabs","kwabs","numOfEffects","sum","sum",">",1000]])
-
-#Hey kællinger vis jeres heste og kattesang
-test.addForcedSongs(["helmig","cat","de ja vu"])
-test.addSoundOverlay("DIR-pat", [30.5,36.5,42.5,48,53.5],ID="helmig",db=0)
-test.addCondition("helmig", [test.lookupCurrentSongName,"helmig"])
-
-#2 percent chance for turbo mode
-test.addRandomSpeedChange(0.02,2,"turbomode")
-
-#2 percent chance for turtle
-test.addRandomSpeedChange(0.02,0.5,"skildpadde")
-
-#de ja vu dobbelt
-test.addRandomSpeedChange(1,2,ID = "dejavu")
-test.addCondition("dejavu",[test.lookupCurrentSongName,"de ja vu"])
-
-#random overlays
-test.addRandomOverlaySound(0.2,"kwabs",mashBool=True,ID="ranKwabs",db=0)
-test.addRandomOverlaySound(0.1,"hello",mashBool=True,ID="ranHello",db=0,slow = 0.8,fast=1.5)
-
-#hest
-test.addSoundOverlay([test.randomSoundEffect,"DIR-bund"],[test.setPositionByID,"ranKwabs",1],ID="bundSpeed")
-test.addCondition("bundSpeed",[test.lookupSpeed,"ranKwabs","<",0.25])
-
-
-#bund if hello and kwabs in same song
-test.addSoundOverlay([test.randomSoundEffect,"DIR-bund"],[test.comparePositions,["ranKwabs","ranHello"],"max",1000],ID="bundclip")
-test.addCondition("bundclip",[[test.lookupLatestIndexByID,"ranKwabs"],[test.lookupLatestIndexByID,"ranHello"]])
-                     
-# #pauses
-test.addLimitedPause(0.5,"DIR-michael")
-test.addLimitedPause(0.5,"DIR-shoutout")
-test.addRandomMashedPause(0.5,"kwabs") 
-
-test.generateKlub100(True)
-# husk bundklip hvis hastighed er under hest
-
-
-# #%%
-# length = 5
-
-# test = Klub100(loc,length=length,localBool=False)
-# test.addForcedSongs(["helmig","cat","de ja vu"])
-# test.generateKlub100(True)
-
-
-
-# # url, startSec, songName, shoutouts = test.readSongsAndShoutouts(loc, False)
-# # songs = ["helmig","cat","de ja vu"]
-# # positions = []
-# # songsList = test.initSongs(True,songName,songs,positions)
-# # test.generateKlub100(True)
