@@ -89,7 +89,7 @@ class Klub100(object):
         self.randomPauses = []
     
         #Read and download songs locally or from Sheets
-        url, startSec, songName, shoutouts = self.readSongsAndShoutouts(loc, localBool,filename)
+        url, startSec, songName, shoutouts = self.readSongsAndShoutouts(loc,localBool,filename)
         self.downloadSongs(loc,url,startSec,songName)
         self.downloadShoutouts(shoutouts,prefix,lan)
         
@@ -144,7 +144,7 @@ class Klub100(object):
         
         
   # Functions to read songs from Sheets or a local Excel file   
-    def readSongsAndShoutouts(self,loc,localBool):
+    def readSongsAndShoutouts(self,loc,localBool,filename):
         
         if localBool == False:
             if self.connect():

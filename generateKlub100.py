@@ -41,7 +41,7 @@ localExcelName = "k100.xlxs"
 length = 1
 
 #Initialiser klub100 objektet
-test = Klub100(loc,length=length,localBool=True)
+test = Klub100(loc,length=length,localBool=False)
 
 #Tilføj sandsynlighed for at en given sang tilfældigt overlayes med en anden
 test.addRandomMash(0.01,"mashup")
