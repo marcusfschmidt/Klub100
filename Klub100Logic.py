@@ -1225,9 +1225,11 @@ class Klub100(object):
 
         Parameters
         ----------
-        randomBool : Boolean to determine whether or not the list of songs is randomised or not. If False, the songs used will simply be the first X in the data sheet, where X is the length of the Klub100.
-        
-        standardPauseConflictSetting: String to determine a standard setting in case of pause conflict. "IC" or "II".
+        randomBool : boolean
+            Boolean to determine whether or not the list of songs is randomised or not. If False, the songs used will simply be the first X in the data sheet, where X is the length of the Klub100..
+        standardPauseConflictSetting : string, optional
+            String to determine a standard setting in case of pause conflict. "IC" or "II" for "ignore custom" or "ignore index".
+
         """
         self.standardPauseConflictSetting = standardPauseConflictSetting
 
