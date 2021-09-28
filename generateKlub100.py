@@ -41,7 +41,7 @@ localexcelname = "k100.xlxs"
 length = 100
 
 #initialiser klub100 objektet
-test = klub100(loc,length=length,localbool=false)
+test = klub100(loc,length=length,localBool=False)
 
 #tilføj sandsynlighed for at en given sang tilfældigt overlayes med en anden
 test.addrandommash(0.01,"mashup")
