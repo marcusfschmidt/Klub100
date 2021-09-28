@@ -19,7 +19,7 @@ import subprocess
 
 
 #Klub100 class 
-class Klub100(object):
+class klub100(object):
     
     def __init__(self,loc,length=100,seed=None,filename = "k100.xlsx",localBool=False,indexedShoutoutBool=False,prefix='',lan='da'):
         """
