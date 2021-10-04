@@ -44,51 +44,53 @@ length = 100
 test = klub100(loc,length=length,localBool=False)
 
 #tilføj sandsynlighed for at en given sang tilfældigt overlayes med en anden
-test.addrandommash(0.01,"mashup")
+test.addRandomMash(0.01,"mashup")
 
 #tilføj bestemt effekt når der er afspillet flere end 1000 af en mashed effekt
-test.addsoundoverlay("qwabs1000gange",positions=0,id="1000kwabs")
-test.addcondition("1000kwabs",[[test.lookuplengthofdictionary,"1000kwabs","<",1],[test.lookupcountstatusandpause, "rankwabs","kwabs","numofeffects","sum","sum",">",1000]])
+test.addSoundOverlay("qwabs1000gange",positions=0,ID="1000kwabs")
+test.addCondition("1000kwabs",[[test.lookupLengthOfDictionary,"1000kwabs","<",1],[test.lookupCountStatusAndPause, "rankwabs","kwabs","numofeffects","sum","sum",">",1000]])
 
 #tving sang i den tilfældige liste
-test.addforcedsongs(["helmig","cat","de ja vu"])
+test.addForcedSongs(["helmig","cat","de ja vu"])
 
 #overlay en mappe med effekter på specifikke positioner hvis sangnavnet for en given sang er "helmig"
-test.addsoundoverlay("dir-pat", [30.5,36.5,42.5,48,53.5],id="helmig",db=0)
-test.addcondition("helmig", [test.lookupcurrentsongname,"helmig"])
+test.addSoundOverlay("DIR-pat", [30.5,36.5,42.5,48,53.5],ID="helmig",db=0)
+test.addCondition("helmig", [test.lookupCurrentSongName,"helmig"])
 
 #2 procent chance for at en sang bliver dobbelt hastighed og afspilles en effekt "turbomode" inden.
-test.addrandomspeedchange(0.02,2,"turbomode")
+test.addRandomSpeedChange(0.02,2,"turbomode")
 
 #samme som ovenfor, bare halv hastighed og med anden effekt.
-test.addrandomspeedchange(0.02,0.5,"skildpadde")
+test.addRandomSpeedChange(0.02,0.5,"skildpadde")
 
 #100 procent chance for dobbelt hastighed på sangen "de ja vu".
-test.addrandomspeedchange(1,2,id = "dejavu")
-test.addcondition("dejavu",[test.lookupcurrentsongname,"de ja vu"])
+test.addRandomSpeedChange(1,2,ID = "dejavu")
+test.addCondition("dejavu",[test.lookupCurrentSongName,"de ja vu"])
 
 #tilføj tilfældige overlays på en sang hvor de mashes sammen. der er mange indstillinger til denne funktion.
-test.addrandomoverlaysound(0.2,"kwabs",mashbool=true,id="rankwabs",db=0)
-test.addrandomoverlaysound(0.1,"hello",mashbool=true,id="ranhello",db=0,slow = 0.8,fast=1.5)
+test.addRandomOverlaySound(0.2,"kwabs",mashBool=True,ID="rankwabs",db=0)
+test.addRandomOverlaySound(0.1,"hello",mashBool=True,ID="ranhello",db=0,slow = 0.8,fast=1.5)
 
 #tilføj en tilfældig effekt fra en fast mappe hvis den laveste hastighed i et mashed tilfældigt kli er under 0.25.
 #lookupspeen sammenholder med en liste med hastigheder fra seneste effekt og regner som standard minimum.
 #man kan også give den et argument som ex. "sum", hvis det skal være summen af hastigheder.
-test.addsoundoverlay([test.randomsoundeffect,"dir-bund"],[test.setpositionbyid,"rankwabs",1],id="bundspeed")
-test.addcondition("bundspeed",[test.lookupspeed,"rankwabs","<",0.25])
+test.addSoundOverlay([test.randomSoundEffect,"DIR-bund"],[test.setPositionByID,"rankwabs",1],ID="bundspeed")
+test.addCondition("bundspeed",[test.lookupSpeed,"rankwabs","<",0.25])
 
 
 #tilføj tilfældig lydeffekt fra fast mappe og sæt den på en given position 
 #hvis lydeffekterne forbundet med rankwabs og ranhello er afspillet i den nuværende iteration.
-test.addsoundoverlay([test.randomsoundeffect,"dir-bund"],[test.comparepositions,["rankwabs","ranhello"],"max",1000],id="bundclip")
-test.addcondition("bundclip",[[test.lookuplatestindexbyid,"rankwabs"],[test.lookuplatestindexbyid,"ranhello"]])
+test.addSoundOverlay([test.randomSoundEffect,"DIR-bund"],[test.comparePositions,["rankwabs","ranhello"],"max",1000],ID="bundclip")
+test.addCondition("bundclip",[[test.lookupLatestIndexByID,"rankwabs"],[test.lookupLatestIndexByID,"ranhello"]])
                      
 #tilføj pauser. limietd pauser stopper med at blive tilføjet, når alle effekterne er brugt én gang.
 #første argument er vægte; det er tilfældigt hvilken pause tilføjes.
 #hvis man ønsker deterministiske pauser skal man benytte sig af mapperne "pauses-index" eller "pauses-songname".
-test.addlimitedpause(0.15,"dir-michael")
-test.addlimitedpause(0.3,"dir-shoutout")
-test.addrandommashedpause(0.55,"kwabs") 
+test.addLimitedPause(0.15,"DIR-michael")
+test.addLimitedPause(0.3,"DIR-shoutout")
+test.addRandomMashedPause(0.55,"kwabs") 
 
 #generer klub100 med tilfældige sange.
-test.generateklub100(randombool = true)
+test.generateKlub100(randomBool = True)
+
+#hello
