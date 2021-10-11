@@ -10,6 +10,8 @@ https://developers.google.com/sheets/api/quickstart/python
 I filen "klub100sheets.py" er der på linje 15 et ID til det Sheets, der bliver brugt:
 https://docs.google.com/spreadsheets/d/1JR03yrHEIwk8qJFmEM8Ev5kwxp4IRJydvggDLfpe5F0/edit#gid=1439957427
 
+"Intro" og "Outro"-filerne i "effects"-mappen tilføjes i starten og slutningen.
+
 
 # How to køre kode
 
