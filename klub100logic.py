@@ -89,8 +89,10 @@ class klub100(object):
         self.randomPauses = []
     
         #Read and download songs locally or from Sheets
-        url, startSec, songName, shoutouts = self.readSongsAndShoutouts(loc,localBool,filename)
+        url, startSec, songName, shoutouts, sheetLan = self.readSongsAndShoutouts(loc,localBool,filename)
         self.downloadSongs(loc,url,startSec,songName)
+        if lan == None:
+            lan = sheetLan
         self.downloadShoutouts(shoutouts,prefix,lan)
         
         self.url = url
@@ -166,13 +168,20 @@ class klub100(object):
         url = data.loc[:,'Link']
         songName = data.loc[:,'Sang']
         nullIndex = np.where(pd.isnull(data.loc[:,'Starttid i sang [s]']))[0]
+
+
         if len(nullIndex) > 0:
+
+
+            print(data[:,'Starttid i sang [s]'][nullIndex])
             data.loc[:,'Starttid i sang [s]'][nullIndex] = 0
+    
+
         startSec = data.loc[:,'Starttid i sang [s]'].astype('int')
         shoutouts = data.loc[:,'Shoutouts'].dropna()
+        sheetLan = data.loc[:,'Sprog'].dropna()
             
-        return url, startSec, songName, shoutouts
-
+        return url, startSec, songName, shoutouts, sheetLan
 
     #If there are more downloaded songs than read from self.readSoungs(), this function is run
     def compareFiles(self,songLoc,songsFromDataFrame):
@@ -676,7 +685,7 @@ class klub100(object):
         self.totalWeights += weight
         settingsList = [mashBool,weight,effectName,eff]
         self.randomPauses.append(settingsList)
-        
+
     def addLimitedPause(self,weight,effectName):
         eff = self.effects[effectName]
         mashBool = False
@@ -691,6 +700,7 @@ class klub100(object):
         self.limitedPauseDictCount[ID] = weight/effLength
         settingsList = [mashBool,weight,effectName,eff,ID]
         self.randomPauses.append(settingsList)
+        print(settingsList)
         
 
         #not really random lmao
@@ -717,6 +727,7 @@ class klub100(object):
             mashBool,settings,idx = self.chooseRandomPause()
             
             #Check if there are no more effects left to be used in a limited pause
+            # print(self.randomPauses[idx][3])
             if isinstance(settings[4],uuid.UUID) and len(self.randomPauses[idx][3]) == 0:
                 self.randomPauses = np.delete(self.randomPauses,idx,0)
                 continue
@@ -731,19 +742,22 @@ class klub100(object):
         if mashBool:
             return True,self.randomPause(song,*settings[3:]),settings[2]
         else:
-            eLen = len(settings[3])
-            # print("length of effect folder:" + str(eLen))
-             
-            if eLen > 0:
-                effectIdx = self.randomInt(0,eLen-1,None)
-                effect = settings[3][effectIdx]
+            if isinstance(settings[3],np.ndarray):
+                eLen = len(settings[3])
+                if eLen > 0:
+                    effectIdx = self.randomInt(0,eLen-1,None)
+                    effect = settings[3][effectIdx]
                 
-                #If the fourth element of the settings is a unique ID
-                if isinstance(settings[4],uuid.UUID):
-                    self.randomPauses[idx][3] = np.delete(self.randomPauses[idx][3],effectIdx)
-                    
+                    #If the fourth element of the settings is a unique ID
+                    if isinstance(settings[4],uuid.UUID):
+                        self.randomPauses[idx][3] = np.delete(self.randomPauses[idx][3],effectIdx)
+
             else:
                 effect = settings[3]
+                if isinstance(settings[4],uuid.UUID):
+                    self.randomPauses = np.delete(self.randomPauses,idx,0)
+                    
+  
 
             effectTime = effect.duration_seconds
             return True,(self.addPauseBeforeSong(song,effect),1,1,1,1,1,1,1,effectTime,effectTime,effectTime),settings[2]
@@ -754,7 +768,7 @@ class klub100(object):
             print("Downloading shoutout '" + shoutout + "', {}".format(index+1)+" out of "+str(shoutoutLength))
             # try:
             sound = gt(prefix + " " + shoutout,lang=lan)
-            sound.save("effects\\shoutout\\" + str(index) +"_"+ prefix + shoutout + "_" + lan +".mp3") 
+            sound.save(shoutoutLoc + str(index) +"_"+ prefix + shoutout + "_" + lan +".mp3") 
             return True
         else:
             return False
@@ -762,8 +776,9 @@ class klub100(object):
 
     def downloadShoutouts(self,shoutouts,prefix,lan):
         shoutoutLoc = self.loc + "effects\\shoutout\\"
+        print(shoutoutLoc)
         print("\nDownloading any missing shoutouts from Google Translate.")
-        
+         
         if type(prefix) is not str:
             if len(prefix) == 1:
                 prefix = prefix[0]
@@ -781,11 +796,11 @@ class klub100(object):
                 lan = lan[0]
             else:
                 try: 
-                    if len(prefix) != len(shoutouts):
+                    if len(lan) != len(shoutouts):
                         print("The length of the language-list is not the same as the length of the shoutouts. Using the first entry in the list.")
                         lan = lan[0]
                 except:
-                    print("If you wish to use multiple prefixes, please ensure that the input is given in a list-type.")
+                    print("If you wish to use multiple languages, please ensure that the input is given in a list-type.")
         
         
         if type(prefix) == str:
@@ -1236,8 +1251,8 @@ class klub100(object):
         songsList = self.initSongs(randomBool,self.songName,self.songs,self.positions)
         self.songsList = songsList
         
-        BumsernesKlub100 = AudioSegment.empty()
-        BumsernesKlub100 += self.effects["intro"]
+        Klub = AudioSegment.empty()
+        Klub += self.effects["intro"]
         
         print("\nNow stitching the songs...")
         
@@ -1363,7 +1378,7 @@ class klub100(object):
             customPause = self.customPause(i,name,song)
             if customPause != False:
                 song = customPause
-            elif i > 0:
+            else:
                 randomPauseOut = self.insertRandomPause(song)
                 if randomPauseOut[0]:
                     song,speeds,numOfEffects,slow,fast,meanMin,meanMax,mean,timeMin,timeMax,time = randomPauseOut[1]
@@ -1391,15 +1406,14 @@ class klub100(object):
 
             i += 1
             songcounter += 1
-            BumsernesKlub100 += song
+            Klub += song
         #Loop end
         
         # Adds the outro file to the output file
-        BumsernesKlub100 += self.effects["outro"]
+        Klub += self.effects["outro"]
         print("Done sticthing. Now exporting the file - this might take some time.\n")
-
-        # Exports the output file
-        BumsernesKlub100.export(self.loc + 'BumsernesKlub100_seed{}'.format(self.seed) + '.mp4',format="mp4")
+         # Exports the output file
+        Klub.export(self.loc + 'Klub{}_seed{}'.format(self.length,self.seed) + '.mp4',format="mp4")
         print('Seed used was {}'.format(self.seed))
         print('bonsjuar madame')
            

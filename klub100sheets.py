@@ -12,7 +12,9 @@ def klubhest(loc):
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
     
     # here enter the id of your google sheet
-    SAMPLE_SPREADSHEET_ID_input = '1JR03yrHEIwk8qJFmEM8Ev5kwxp4IRJydvggDLfpe5F0'
+    # SAMPLE_SPREADSHEET_ID_input = '1JR03yrHEIwk8qJFmEM8Ev5kwxp4IRJydvggDLfpe5F0'
+    SAMPLE_SPREADSHEET_ID_input = '1ZkggMIjbhU11oiux9mXN_OgXn09o-bcrE7A0McpvP3c'
+
     SAMPLE_RANGE_NAME = 'A1:AA1000'
     
     def main():
